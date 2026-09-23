@@ -154,7 +154,8 @@ func Unsubscribe(cur realm, svcKey string) {
 	if normalizedcoins.CoinsHasPositive(due) {
 		normalizedcoins.SendCoins(0, cur, svc.owner.Owner(), due)
 	}
-	remaining := normalizedcoins.SubCoins(sub.vault, due)
+	// The charge above already took due out of the vault.
+	remaining := sub.vault
 	if normalizedcoins.CoinsHasPositive(remaining) {
 		normalizedcoins.SendCoins(0, cur, caller, remaining)
 	}

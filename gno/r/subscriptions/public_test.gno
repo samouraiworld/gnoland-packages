@@ -288,6 +288,22 @@ func TestSubscribe(cur realm, t *testing.T) {
 		})
 	})
 
+	t.Run("deposit in a denom the price does not name panics", func(cur realm, t *testing.T) {
+		resetState()
+		testing.SetOriginCaller(owner)
+		testing.SetRealm(testing.NewUserRealm(owner))
+		NewServiceSimple(cross(cur), "GRC20 Only", "Test description", 24*time.Hour, "", 0, "gno.land/r/tests/vm/test20.TST", 1000)
+		testSvcKey := serviceKey(owner, "GRC20 Only")
+
+		testing.SetOriginCaller(subscriber)
+		testing.SetRealm(testing.NewUserRealm(subscriber))
+		testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 5000)))
+
+		uassert.AbortsWithMessage(t, cur, "initial deposit must be positive and at least the service price", func() {
+			Subscribe(cross(cur), testSvcKey, "", 0)
+		})
+	})
+
 	t.Run("native coins forwarded by another realm panic", func(cur realm, t *testing.T) {
 		resetState()
 		testing.SetOriginCaller(owner)
@@ -347,7 +363,17 @@ func TestUnsubscribe(cur realm, t *testing.T) {
 		uassert.True(t, svc.subscribers.Has(subscriber.String()), "subscriber should be in service before unsubscribe")
 		uassert.True(t, users.Has(subscriber.String()), "user should have subscriptions before unsubscribe")
 
+		b := banker.NewReadonlyBanker()
+		ownerBefore := b.GetCoins(owner).AmountOf("ugnot")
+		subscriberBefore := b.GetCoins(subscriber).AmountOf("ugnot")
+		realmBefore := b.GetCoins(subscriptionsAddr).AmountOf("ugnot")
+
 		Unsubscribe(cross(cur), svcKey)
+
+		// The first period goes to the owner and the rest back to the subscriber.
+		uassert.Equal(t, int64(1000), b.GetCoins(owner).AmountOf("ugnot")-ownerBefore)
+		uassert.Equal(t, int64(4000), b.GetCoins(subscriber).AmountOf("ugnot")-subscriberBefore)
+		uassert.Equal(t, int64(5000), realmBefore-b.GetCoins(subscriptionsAddr).AmountOf("ugnot"))
 
 		uassert.False(t, svc.subscribers.Has(subscriber.String()), "subscriber should be removed from service")
 		uassert.False(t, users.Has(subscriber.String()), "user should be removed from users tree")
@@ -697,4 +723,51 @@ func TestServiceClaimVault(cur realm, t *testing.T) {
 			ServiceClaimVault(cross(cur), testSvcKey)
 		})
 	})
+}
+
+func TestClaimChargesCoveredPeriodsOfInactiveSubscriber(cur realm, t *testing.T) {
+	defer resetState()
+
+	owner := testutils.TestAddress("claimowner")
+	subscriber := testutils.TestAddress("claimsubscriber")
+	subscriptionsAddr := chain.PackageAddress("gno.land/r/samcrew/subscriptions")
+	b := banker.NewReadonlyBanker()
+
+	testing.SetOriginCaller(owner)
+	testing.SetRealm(testing.NewUserRealm(owner))
+	NewServiceSimple(cross(cur), "Hourly", "desc", time.Hour, "ugnot", 1000, "", 0)
+	svcKey := serviceKey(owner, "Hourly")
+
+	// 2500 covers two periods and not a third.
+	testing.SetOriginCaller(subscriber)
+	testing.SetRealm(testing.NewUserRealm(subscriber))
+	deposit := chain.NewCoins(chain.NewCoin("ugnot", 2500))
+	testing.IssueCoins(subscriptionsAddr, deposit)
+	testing.SetOriginSend(deposit)
+	Subscribe(cross(cur), svcKey, "", 0)
+
+	testing.SkipHeights(720 * 4)
+
+	testing.SetOriginCaller(owner)
+	testing.SetRealm(testing.NewUserRealm(owner))
+	ServiceClaimVault(cross(cur), svcKey)
+
+	svc := getService(svcKey)
+	sub := svc.subscribers.Get(subscriber.String()).(*subscription)
+	uassert.Equal(t, int64(2000), b.GetCoins(owner).AmountOf("ugnot"))
+	uassert.Equal(t, int64(500), sub.vault.AmountOf("/native/ugnot"))
+	uassert.Equal(t, int64(500), b.GetCoins(subscriptionsAddr).AmountOf("ugnot"))
+
+	// A second claim finds nothing left to charge.
+	uassert.AbortsWithMessage(t, cur, "no funds to claim", func() {
+		ServiceClaimVault(cross(cur), svcKey)
+	})
+
+	// The subscriber can still leave, and gets back what the vault holds.
+	testing.SetOriginCaller(subscriber)
+	testing.SetRealm(testing.NewUserRealm(subscriber))
+	testing.SetOriginSend(chain.Coins{})
+	Unsubscribe(cross(cur), svcKey)
+	uassert.Equal(t, int64(500), b.GetCoins(subscriber).AmountOf("ugnot"))
+	uassert.Equal(t, int64(0), b.GetCoins(subscriptionsAddr).AmountOf("ugnot"))
 }
