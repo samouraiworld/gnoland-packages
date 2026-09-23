@@ -1,0 +1,34 @@
+# gnoland-packages
+
+Samcrew's packages and realms for [gno.land](https://gno.land), in one
+repository. A package that has its own repository is a submodule here.
+
+| Directory | Import path | Origin |
+| --- | --- | --- |
+| [`gno/p/piechart/v0`](gno/p/piechart/v0) | `gno.land/p/samcrew/piechart/v0` | [gnolang/gno `examples/`](https://github.com/gnolang/gno/tree/7777db693/examples/gno.land/p/samcrew/piechart/v0) |
+| [`gno/p/tablesort/v0`](gno/p/tablesort/v0) | `gno.land/p/samcrew/tablesort/v0` | [gnolang/gno `examples/`](https://github.com/gnolang/gno/tree/7777db693/examples/gno.land/p/samcrew/tablesort/v0) |
+| [`gno/p/urlfilter/v0`](gno/p/urlfilter/v0) | `gno.land/p/samcrew/urlfilter/v0` | [gnolang/gno `examples/`](https://github.com/gnolang/gno/tree/7777db693/examples/gno.land/p/samcrew/urlfilter/v0) |
+| [`gno/p/gauge`](gno/p/gauge) | `gno.land/p/samcrew/gauge` | [gnolang/gno `examples/quarantined/`](https://github.com/gnolang/gno/tree/7777db693/examples/quarantined/gno.land/p/samcrew/gauge) |
+| [`gno/p/keccak256`](gno/p/keccak256) | `gno.land/p/samcrew/keccak256` | [gnolang/gno `examples/quarantined/`](https://github.com/gnolang/gno/tree/7777db693/examples/quarantined/gno.land/p/samcrew/keccak256) |
+| [`gno/r/subscriptions`](gno/r/subscriptions) | `gno.land/r/samcrew/subscriptions` | [gnolang/gno#4931](https://github.com/gnolang/gno/pull/4931) |
+| [`gno/r/normalizedcoins`](gno/r/normalizedcoins) | `gno.land/r/samcrew/normalizedcoins` | [gnolang/gno#4931](https://github.com/gnolang/gno/pull/4931) |
+| [`gno/r/payrolls`](gno/r/payrolls) | `gno.land/r/demo/payrolls` | [gnolang/gno#3432](https://github.com/gnolang/gno/pull/3432) |
+| [`gnodaokit`](https://github.com/samouraiworld/gnodaokit) | `gno.land/p/samcrew/daokit` and its siblings | submodule |
+
+## Outdated
+
+`subscriptions`, `normalizedcoins` and `payrolls` come from pull requests
+written against an older gno, and they do not build on current gno until they
+are ported. They import paths gno has since moved:
+`gno.land/p/demo/tokens/grc20` is now `gno.land/p/nt/grc20/v0`.
+
+## Test
+
+Clone with the submodules, then run `gno test` from the repository root, where
+`gnowork.toml` marks the workspace:
+
+```bash
+git clone --recurse-submodules https://github.com/samouraiworld/gnoland-packages.git
+cd gnoland-packages
+gno test ./gno/...
+```

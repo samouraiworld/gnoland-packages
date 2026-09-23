@@ -1,0 +1,3 @@
+[submodule "gnodaokit"]
+	path = gnodaokit
+	url = https://github.com/samouraiworld/gnodaokit.git
