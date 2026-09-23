@@ -1,2 +1,2 @@
-module = "gno.land/r/demo/payrolls"
+module = "gno.land/r/samcrew/payrolls"
 gno = "0.9"
