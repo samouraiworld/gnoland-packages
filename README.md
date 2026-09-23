@@ -17,14 +17,8 @@ repository. A package that has its own repository is a submodule here.
 
 ## Work in progress
 
-Two packages are not finished:
-
-- `payrolls` does not build on current gno until it is ported. It imports
-  paths gno has since moved: `gno.land/p/demo/tokens/grc20` is now
-  `gno.land/p/nt/grc20/v0`.
-- `subscriptions` accepts one GRC20 token in a first deposit. A top-up that
-  brings a lapsed subscription back restarts its billing period, and the
-  periods it missed are never charged.
+`payrolls` and `subscriptions` are still work in progress. Do not use them in
+production.
 
 ## Test
 
