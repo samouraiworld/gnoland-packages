@@ -264,8 +264,20 @@ func TestLessCoinsThan(cur realm, t *testing.T) {
 			false,
 		},
 		{
-			"different denoms",
+			"denom of b missing from a",
 			chain.NewCoins(chain.NewCoin("coinA", 50)),
+			chain.NewCoins(chain.NewCoin("coinB", 100)),
+			true,
+		},
+		{
+			"empty a",
+			chain.Coins{},
+			chain.NewCoins(chain.NewCoin("coinA", 100)),
+			true,
+		},
+		{
+			"extra denom in a",
+			chain.NewCoins(chain.NewCoin("coinA", 50), chain.NewCoin("coinB", 100)),
 			chain.NewCoins(chain.NewCoin("coinB", 100)),
 			false,
 		},

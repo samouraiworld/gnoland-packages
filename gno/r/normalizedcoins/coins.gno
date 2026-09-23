@@ -98,21 +98,12 @@ func MultiplyCoins(coins chain.Coins, factor int64) chain.Coins {
 	return out
 }
 
-// LessCoinsThan returns true if any coin amount in a is less than its corresponding amount in b.
+// LessCoinsThan returns true if a holds less than b of any denom in b.
+// A denom in b that a lacks counts as zero in a.
 func LessCoinsThan(a chain.Coins, b chain.Coins) bool {
-	for _, coinA := range a {
-		found := false
-		for _, coinB := range b {
-			if coinA.Denom == coinB.Denom {
-				if coinA.Amount < coinB.Amount {
-					return true
-				}
-				found = true
-				break
-			}
-		}
-		if !found && coinA.Amount > 0 {
-			return false
+	for _, coinB := range b {
+		if a.AmountOf(coinB.Denom) < coinB.Amount {
+			return true
 		}
 	}
 	return false

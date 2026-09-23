@@ -44,21 +44,26 @@ func (sub *subscription) dueAmount(charge bool, renewalPeriod time.Duration, pri
 		return chain.Coins{}, true
 	}
 
-	due := chain.Coins{} // dummy initial value
-	for i := int64(0); i < periodsElapsed; i++ {
-		due = normalizedcoins.AddCoins(due, price)
-		if normalizedcoins.LessCoinsThan(sub.vault, due) {
-			return normalizedcoins.SubCoins(due, price), false
+	// Count the periods the vault covers, stopping at the first it cannot.
+	due := chain.Coins{}
+	covered := int64(0)
+	for covered < periodsElapsed {
+		next := normalizedcoins.AddCoins(due, price)
+		if normalizedcoins.LessCoinsThan(sub.vault, next) {
+			break
 		}
+		due = next
+		covered++
 	}
 
-	if charge {
+	// A charge takes every covered period, so the vault always matches what left the realm.
+	if charge && covered > 0 {
 		sub.vault = normalizedcoins.SubCoins(sub.vault, due)
-		sub.lastChargedAt = sub.lastChargedAt.Add(time.Duration(periodsElapsed) * renewalPeriod)
+		sub.lastChargedAt = sub.lastChargedAt.Add(time.Duration(covered) * renewalPeriod)
 		sub.initialPaid = true
 	}
 
-	return due, true
+	return due, covered == periodsElapsed
 }
 
 func (sub *subscription) isActive(renewalPeriod time.Duration, price chain.Coins) bool {
