@@ -1,0 +1,12 @@
+# Packages that do not build or pass on the pinned gno (ci/gno-ref.env) yet.
+# ci/gno-test.sh expects each of these to FAIL and errors if one passes, so
+# remove an entry in the same pull request that ports the package.
+#
+# Written against an older gno: they import gno.land/p/demo/tokens/grc20,
+# which is now gno.land/p/nt/grc20/v0 (see README "Outdated").
+gno/r/normalizedcoins
+gno/r/payrolls
+gno/r/subscriptions
+# Test helpers of subscriptions; they fail only because they import it.
+gno/r/subscriptions/internal/grc20_test_script
+gno/r/subscriptions/internal/native_test_script

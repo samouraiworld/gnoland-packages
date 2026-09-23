@@ -1,0 +1,57 @@
+# Tests every package with the gno revision the gno.land mainnet runs
+# (ci/gno-ref.env), so a green check means "works on gnoland-1", not "works on
+# whatever gno master is today".
+
+name: Gno test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  gno-test:
+    name: gno test (mainnet gno)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned gno revision
+        id: pin
+        run: |
+          source ci/gno-ref.env
+          echo "ref=$MAINNET_GNO_REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: gnolang/gno
+          ref: ${{ steps.pin.outputs.ref }}
+          path: .gno-src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .gno-src/go.mod
+          cache-dependency-path: .gno-src/go.sum
+
+      # Out of the workspace before anything runs: gnowork.toml makes the whole
+      # repository a gno workspace, and a gno checkout inside it would put a
+      # second copy of every upstream package in scope.
+      - name: Build gno
+        run: |
+          mv .gno-src "$RUNNER_TEMP/gno-src"
+          go -C "$RUNNER_TEMP/gno-src" build -o "$RUNNER_TEMP/bin/gno" ./gnovm/cmd/gno
+
+      - name: Test packages under gno/
+        env:
+          GNO: ${{ runner.temp }}/bin/gno
+          GNOROOT: ${{ runner.temp }}/gno-src
+          GNOHOME: ${{ runner.temp }}/gnohome
+        run: ci/gno-test.sh
