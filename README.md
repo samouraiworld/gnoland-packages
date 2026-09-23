@@ -8,6 +8,7 @@ repository. A package that has its own repository is a submodule here.
 | [`gno/p/piechart/v0`](gno/p/piechart/v0) | `gno.land/p/samcrew/piechart/v0` | [gnolang/gno `examples/`](https://github.com/gnolang/gno/tree/7777db693/examples/gno.land/p/samcrew/piechart/v0) |
 | [`gno/p/tablesort/v0`](gno/p/tablesort/v0) | `gno.land/p/samcrew/tablesort/v0` | [gnolang/gno `examples/`](https://github.com/gnolang/gno/tree/7777db693/examples/gno.land/p/samcrew/tablesort/v0) |
 | [`gno/p/urlfilter/v0`](gno/p/urlfilter/v0) | `gno.land/p/samcrew/urlfilter/v0` | [gnolang/gno `examples/`](https://github.com/gnolang/gno/tree/7777db693/examples/gno.land/p/samcrew/urlfilter/v0) |
+| [`gno/p/avl`](gno/p/avl) | `gno.land/p/samcrew/avl` | [gnolang/gno `p/nt/avl/v0` at `f3d5a5d13`](https://github.com/gnolang/gno/tree/f3d5a5d13c09e19fadcb836e8473eef3177ed429/examples/gno.land/p/nt/avl/v0), via samcrew-deployer `deps/avl` |
 | [`gno/p/gauge`](gno/p/gauge) | `gno.land/p/samcrew/gauge` | [gnolang/gno `examples/quarantined/`](https://github.com/gnolang/gno/tree/7777db693/examples/quarantined/gno.land/p/samcrew/gauge) |
 | [`gno/p/keccak256`](gno/p/keccak256) | `gno.land/p/samcrew/keccak256` | [gnolang/gno `examples/quarantined/`](https://github.com/gnolang/gno/tree/7777db693/examples/quarantined/gno.land/p/samcrew/keccak256) |
 | [`gno/r/subscriptions`](gno/r/subscriptions) | `gno.land/r/samcrew/subscriptions` | [gnolang/gno#4931](https://github.com/gnolang/gno/pull/4931) |
