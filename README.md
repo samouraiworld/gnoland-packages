@@ -13,7 +13,14 @@ repository. A package that has its own repository is a submodule here.
 | [`gno/r/subscriptions`](gno/r/subscriptions) | `gno.land/r/samcrew/subscriptions` | [gnolang/gno#4931](https://github.com/gnolang/gno/pull/4931) |
 | [`gno/r/normalizedcoins`](gno/r/normalizedcoins) | `gno.land/r/samcrew/normalizedcoins` | [gnolang/gno#4931](https://github.com/gnolang/gno/pull/4931) |
 | [`gno/r/payrolls`](gno/r/payrolls) | `gno.land/r/demo/payrolls` | [gnolang/gno#3432](https://github.com/gnolang/gno/pull/3432) |
-| [`gnodaokit`](https://github.com/samouraiworld/gnodaokit) | `gno.land/p/samcrew/daokit` and its siblings | submodule |
+| [`gnodaokit`](https://github.com/samouraiworld/gnodaokit) | `gno.land/p/samcrew/daokit` and its siblings | submodule, pinned at `0eb85184` (see below) |
+
+## gnodaokit pin
+
+The submodule is pinned at `0eb85184`, the reviewed commit that
+samcrew-deployer publishes daokit from (`GNODAOKIT_REF`). That commit is on
+gnodaokit's `feat/topaz-v2-rename` branch, not yet on its `main`: move the pin
+only together with the deployer's, never to gnodaokit `main` on its own.
 
 ## Work in progress
 

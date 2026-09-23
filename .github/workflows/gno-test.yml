@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Read the pinned gno revision
         id: pin
@@ -58,3 +60,12 @@ jobs:
           GNOROOT: ${{ runner.temp }}/gno-src
           GNOHOME: ${{ runner.temp }}/gnohome
         run: ci/gno-test.sh
+
+      # From inside the submodule: gnodaokit's own gnowork.toml puts its
+      # vendored/ dependencies in scope, which the root workspace does not.
+      - name: Test the gnodaokit submodule
+        working-directory: gnodaokit
+        env:
+          GNOROOT: ${{ runner.temp }}/gno-src
+          GNOHOME: ${{ runner.temp }}/gnohome
+        run: '"${{ runner.temp }}/bin/gno" test ./gno/...'
