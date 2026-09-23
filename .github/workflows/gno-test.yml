@@ -49,6 +49,9 @@ jobs:
           mv .gno-src "$RUNNER_TEMP/gno-src"
           go -C "$RUNNER_TEMP/gno-src" build -o "$RUNNER_TEMP/bin/gno" ./gnovm/cmd/gno
 
+      # An import that is not in this repository is fetched from rpc.gno.land,
+      # the gnoland-1 chain: a test that passes here also proves every import
+      # is deployed on mainnet.
       - name: Test packages under gno/
         env:
           GNO: ${{ runner.temp }}/bin/gno
