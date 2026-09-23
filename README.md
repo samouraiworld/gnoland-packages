@@ -15,11 +15,16 @@ repository. A package that has its own repository is a submodule here.
 | [`gno/r/payrolls`](gno/r/payrolls) | `gno.land/r/demo/payrolls` | [gnolang/gno#3432](https://github.com/gnolang/gno/pull/3432) |
 | [`gnodaokit`](https://github.com/samouraiworld/gnodaokit) | `gno.land/p/samcrew/daokit` and its siblings | submodule |
 
-## Outdated
+## Work in progress
 
-`payrolls` comes from a pull request written against an older gno, and it
-does not build on current gno until it is ported. It imports paths gno has
-since moved: `gno.land/p/demo/tokens/grc20` is now `gno.land/p/nt/grc20/v0`.
+Two packages are not finished:
+
+- `payrolls` does not build on current gno until it is ported. It imports
+  paths gno has since moved: `gno.land/p/demo/tokens/grc20` is now
+  `gno.land/p/nt/grc20/v0`.
+- `subscriptions` accepts one GRC20 token in a first deposit. A top-up that
+  brings a lapsed subscription back restarts its billing period, and the
+  periods it missed are never charged.
 
 ## Test
 
