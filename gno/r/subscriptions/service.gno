@@ -70,8 +70,8 @@ func mustGetService(key string) *service {
 }
 
 func getService(key string) *service {
-	value, exists := services.Get(key)
-	if !exists {
+	value := services.Get(key)
+	if value == nil {
 		return nil
 	}
 	return value.(*service)

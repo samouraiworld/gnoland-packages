@@ -8,7 +8,7 @@ import (
 	"gno.land/p/nt/uassert/v0"
 )
 
-func TestDueAmount(t *testing.T) {
+func TestDueAmount(cur realm, t *testing.T) {
 	defer resetState()
 
 	price := mustPrefixCoins(chain.NewCoins(chain.NewCoin("ugnot", 1000)), nil)
@@ -108,7 +108,7 @@ func TestDueAmount(t *testing.T) {
 			}
 
 			if tt.expectPanic {
-				uassert.PanicsWithMessage(t, tt.panicMsg, func() {
+				uassert.PanicsWithMessage(t, cur, tt.panicMsg, func() {
 					sub.dueAmount(false, tt.renewalPeriod, price)
 				})
 				return
@@ -140,7 +140,7 @@ func TestDueAmount(t *testing.T) {
 	})
 }
 
-func TestIsActive(t *testing.T) {
+func TestIsActive(cur realm, t *testing.T) {
 	defer resetState()
 
 	renewalPeriod := 24 * time.Hour
@@ -197,7 +197,7 @@ func TestIsActive(t *testing.T) {
 	}
 }
 
-func TestSubscriptionBalance(t *testing.T) {
+func TestSubscriptionBalance(cur realm, t *testing.T) {
 	defer resetState()
 
 	renewalPeriod := 24 * time.Hour
@@ -248,7 +248,7 @@ func TestSubscriptionBalance(t *testing.T) {
 	}
 }
 
-func TestDueAmountWithMultipleCoins(t *testing.T) {
+func TestDueAmountWithMultipleCoins(cur realm, t *testing.T) {
 	defer resetState()
 
 	renewalPeriod := 24 * time.Hour
@@ -306,7 +306,7 @@ func TestDueAmountWithMultipleCoins(t *testing.T) {
 	}
 }
 
-func TestDueAmountWithSkipHeights(t *testing.T) {
+func TestDueAmountWithSkipHeights(cur realm, t *testing.T) {
 	defer resetState()
 
 	renewalPeriod := 1 * time.Hour

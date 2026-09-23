@@ -17,10 +17,9 @@ repository. A package that has its own repository is a submodule here.
 
 ## Outdated
 
-`subscriptions`, `normalizedcoins` and `payrolls` come from pull requests
-written against an older gno, and they do not build on current gno until they
-are ported. They import paths gno has since moved:
-`gno.land/p/demo/tokens/grc20` is now `gno.land/p/nt/grc20/v0`.
+`payrolls` comes from a pull request written against an older gno, and it
+does not build on current gno until it is ported. It imports paths gno has
+since moved: `gno.land/p/demo/tokens/grc20` is now `gno.land/p/nt/grc20/v0`.
 
 ## Test
 

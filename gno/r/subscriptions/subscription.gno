@@ -2,14 +2,13 @@ package subscriptions
 
 import (
 	"chain"
-	"chain/banker"
-	"chain/runtime"
+	"chain/runtime/unsafe"
 	"errors"
 	"time"
 
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/seqid/v0"
-	"gno.land/r/demo/defi/grc20reg"
+	"gno.land/r/nt/grc20reg/v0"
 	"gno.land/r/samcrew/normalizedcoins"
 )
 
@@ -72,9 +71,20 @@ func (sub *subscription) balance(renewalPeriod time.Duration, price chain.Coins)
 	return normalizedcoins.SubCoins(sub.vault, dueAmount)
 }
 
+// nativeSend returns the native coins attached to the transaction. They reach
+// this realm only when a user calls it directly, so any other caller that
+// attaches coins is refused.
+func nativeSend(cur realm) chain.Coins {
+	send := unsafe.OriginSend()
+	if normalizedcoins.CoinsHasPositive(send) && !cur.Previous().IsUserCall() {
+		panic("native coins must be sent by a direct user call")
+	}
+	return send
+}
+
 func topupNative(cur realm, svcKey string) {
-	caller := runtime.PreviousRealm().Address()
-	send := banker.OriginSend()
+	caller := cur.Previous().Address()
+	send := nativeSend(cur)
 	if !normalizedcoins.CoinsHasPositive(send) {
 		panic("topup amount must be positive")
 	}
@@ -88,7 +98,7 @@ func topupNative(cur realm, svcKey string) {
 	if !svc.subscribers.Has(caller.String()) {
 		panic("not subscribed to service: " + svcKey)
 	}
-	subValue, _ := svc.subscribers.Get(caller.String())
+	subValue := svc.subscribers.Get(caller.String())
 	sub := subValue.(*subscription)
 	sub.vault = normalizedcoins.AddCoins(sub.vault, prefixedSend)
 }
@@ -98,7 +108,7 @@ func topupGRC20(cur realm, svcKey string, fqName string, amount int64) {
 	if token == nil {
 		panic(errors.New("token not found: " + fqName))
 	}
-	caller := runtime.PreviousRealm().Address()
+	caller := cur.Previous().Address()
 
 	anyAmount := amount == -1
 	if !anyAmount && amount <= 0 {
@@ -106,7 +116,7 @@ func topupGRC20(cur realm, svcKey string, fqName string, amount int64) {
 	}
 
 	if anyAmount {
-		amount = int64(token.Allowance(caller, runtime.CurrentRealm().Address()))
+		amount = int64(token.Allowance(caller, cur.Address()))
 	}
 
 	grc20Send := chain.NewCoins(chain.NewCoin(fqName, amount))
@@ -115,16 +125,13 @@ func topupGRC20(cur realm, svcKey string, fqName string, amount int64) {
 		panic(err)
 	}
 
-	teller := token.RealmTeller()
-	if err := teller.TransferFrom(caller, runtime.CurrentRealm().Address(), amount); err != nil {
-		panic(err)
-	}
+	grc20reg.TransferFrom(0, cur, fqName, caller, cur.Address(), amount)
 
 	svc := mustGetService(svcKey)
 	if !svc.subscribers.Has(caller.String()) {
 		panic("not subscribed to service: " + svcKey)
 	}
-	subValue, _ := svc.subscribers.Get(caller.String())
+	subValue := svc.subscribers.Get(caller.String())
 	sub := subValue.(*subscription)
 	sub.vault = normalizedcoins.AddCoins(sub.vault, prefixedSend)
 }

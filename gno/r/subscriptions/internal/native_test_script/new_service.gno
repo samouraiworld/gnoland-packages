@@ -52,11 +52,11 @@ gnokey maketx call \
   --remote localhost:26657 \
   KEY
 */
-func main() {
+func main(cur realm) {
 	// Create a new service with 30-day renewal period
 	// Price: 1 GNOT (1000000 ugnot) per month in NATIVE coins
 	subscriptions.NewService(
-		cross,
+		cross(cur),
 		"Premium Plan",
 		"Access to premium features with monthly billing (paid in native GNOT)",
 		30*24*time.Hour,                                // 30 days

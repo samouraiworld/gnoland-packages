@@ -3,11 +3,10 @@ package normalizedcoins
 import (
 	"chain"
 	"chain/banker"
-	"chain/runtime"
 	"errors"
 	"strings"
 
-	"gno.land/r/demo/defi/grc20reg"
+	"gno.land/r/nt/grc20reg/v0"
 )
 
 // Package normalizedcoins provides utilities for handling normalized coin representations
@@ -135,12 +134,12 @@ func AddCoinAmount(coins chain.Coins, value chain.Coin) chain.Coins {
 	return append(coins, value)
 }
 
-// SendCoins sends normalized coins to a destination address.
+// SendCoins sends normalized coins from the realm rlm to a destination address.
 // It automatically separates native and GRC20 coins based on their prefixes
 // and uses the appropriate transfer mechanism for each type.
 //
 // Panics if any coin has a negative amount or an invalid denom prefix.
-func SendCoins(dst address, coins chain.Coins) {
+func SendCoins(_ int, rlm realm, dst address, coins chain.Coins) {
 	if len(coins) == 0 {
 		return
 	}
@@ -167,13 +166,12 @@ func SendCoins(dst address, coins chain.Coins) {
 		}
 	}
 
-	banker_ := banker.NewBanker(banker.BankerTypeRealmIssue)
-	from := runtime.CurrentRealm().Address()
 	if len(natives) != 0 {
-		banker_.SendCoins(from, dst, natives)
+		banker.NewBanker(banker.BankerTypeRealmSend, rlm).SendCoins(rlm.Address(), dst, natives)
 	}
 
+	// PrefixCoins dropped the domain, and the grc20reg key carries it.
 	for _, coin := range grc20s {
-		grc20reg.MustGet(coin.Denom).RealmTeller().Transfer(dst, coin.Amount)
+		grc20reg.Transfer(0, rlm, "gno.land/"+coin.Denom, dst, coin.Amount)
 	}
 }

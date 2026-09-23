@@ -2,15 +2,13 @@ package subscriptions
 
 import (
 	"chain"
-	"chain/banker"
-	"chain/runtime"
 	"strings"
 	"time"
 
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/ownable/v0"
 	"gno.land/p/nt/seqid/v0"
-	"gno.land/r/demo/defi/grc20reg"
+	"gno.land/r/nt/grc20reg/v0"
 	"gno.land/r/samcrew/normalizedcoins"
 )
 
@@ -38,7 +36,7 @@ func NewService(cur realm, displayName, description string, renewalPeriod time.D
 		panic("renewal period must be positive")
 	}
 
-	creator := runtime.PreviousRealm().Address()
+	creator := cur.Previous().Address()
 	key := serviceKey(creator, displayName)
 	if services.Has(key) {
 		panic("service with the same display name already exists")
@@ -49,7 +47,7 @@ func NewService(cur realm, displayName, description string, renewalPeriod time.D
 	}
 	svc := &service{
 		id:            id.Next(),
-		owner:         ownable.NewWithAddressByPrevious(creator),
+		owner:         ownable.NewWithAddress(creator),
 		displayName:   displayName,
 		description:   description,
 		renewalPeriod: renewalPeriod,
@@ -92,7 +90,7 @@ func Subscribe(cur realm, svcKey string, fqName string, amount int64) {
 		panic("service key cannot be empty")
 	}
 
-	caller := runtime.PreviousRealm().Address()
+	caller := cur.Previous().Address()
 	svc := mustGetService(svcKey)
 	if svc.subscribers.Has(caller.String()) {
 		panic("already subscribed")
@@ -101,18 +99,14 @@ func Subscribe(cur realm, svcKey string, fqName string, amount int64) {
 	// Validate GRC20 token exists if fqName is provided
 	var grc20Send chain.Coins
 	if fqName != "" && amount != 0 {
-		token := grc20reg.Get(fqName)
-		if token == nil {
+		if grc20reg.Get(fqName) == nil {
 			panic("GRC20 token not found: " + fqName)
 		}
-		teller := token.RealmTeller()
-		if err := teller.TransferFrom(caller, runtime.CurrentRealm().Address(), amount); err != nil {
-			panic(err)
-		}
+		grc20reg.TransferFrom(0, cur, fqName, caller, cur.Address(), amount)
 		grc20Send = chain.NewCoins(chain.NewCoin(fqName, amount))
 	}
 
-	natSend := banker.OriginSend()
+	natSend := nativeSend(cur)
 	sCoins, err := normalizedcoins.PrefixCoins(natSend, grc20Send)
 	if err != nil {
 		panic(err)
@@ -131,8 +125,8 @@ func Subscribe(cur realm, svcKey string, fqName string, amount int64) {
 	svc.subscribers.Set(caller.String(), sub)
 
 	var userSubs *avl.Tree
-	userSubsRaw, ok := users.Get(caller.String())
-	if !ok {
+	userSubsRaw := users.Get(caller.String())
+	if userSubsRaw == nil {
 		userSubs = avl.NewTree()
 	} else {
 		userSubs = userSubsRaw.(*avl.Tree)
@@ -149,24 +143,24 @@ func Unsubscribe(cur realm, svcKey string) {
 		panic("service key cannot be empty")
 	}
 
-	caller := runtime.PreviousRealm().Address()
+	caller := cur.Previous().Address()
 	svc := mustGetService(svcKey)
 	if !svc.subscribers.Has(caller.String()) {
 		panic("not subscribed to service: " + svcKey)
 	}
-	subValue, _ := svc.subscribers.Get(caller.String())
+	subValue := svc.subscribers.Get(caller.String())
 	sub := subValue.(*subscription)
 	due, _ := sub.dueAmount(true, svc.renewalPeriod, svc.price)
 	if normalizedcoins.CoinsHasPositive(due) {
-		normalizedcoins.SendCoins(svc.owner.Owner(), due)
+		normalizedcoins.SendCoins(0, cur, svc.owner.Owner(), due)
 	}
 	remaining := normalizedcoins.SubCoins(sub.vault, due)
 	if normalizedcoins.CoinsHasPositive(remaining) {
-		normalizedcoins.SendCoins(caller, remaining)
+		normalizedcoins.SendCoins(0, cur, caller, remaining)
 	}
 	svc.subscribers.Remove(caller.String())
 
-	userSubsRaw, _ := users.Get(caller.String())
+	userSubsRaw := users.Get(caller.String())
 	userSubs := userSubsRaw.(*avl.Tree)
 	userSubs.Remove(svcKey)
 	if userSubs.Size() == 0 {
@@ -184,7 +178,7 @@ func Topup(cur realm, svcKey string, fqName string, amount int64) {
 		panic("service key cannot be empty")
 	}
 
-	caller := runtime.PreviousRealm().Address()
+	caller := cur.Previous().Address()
 	svc := mustGetService(svcKey)
 	if !svc.subscribers.Has(caller.String()) {
 		panic("not subscribed to service: " + svcKey)
@@ -197,10 +191,10 @@ func Topup(cur realm, svcKey string, fqName string, amount int64) {
 		}
 	}
 
-	subRaw, _ := svc.subscribers.Get(caller.String())
+	subRaw := svc.subscribers.Get(caller.String())
 	sub := subRaw.(*subscription)
 	_, active := sub.dueAmount(false, svc.renewalPeriod, svc.price)
-	native := banker.OriginSend()
+	native := nativeSend(cur)
 	if normalizedcoins.CoinsHasPositive(native) {
 		topupNative(cur, svcKey)
 	}
@@ -230,12 +224,12 @@ func Withdraw(cur realm, svcKey string, denom string, amount int64) {
 		panic("withdrawal amount must be positive")
 	}
 
-	caller := runtime.PreviousRealm().Address()
+	caller := cur.Previous().Address()
 	svc := mustGetService(svcKey)
 	if !svc.subscribers.Has(caller.String()) {
 		panic("not subscribed to service: " + svcKey)
 	}
-	subValue, _ := svc.subscribers.Get(caller.String())
+	subValue := svc.subscribers.Get(caller.String())
 	sub := subValue.(*subscription)
 	due, _ := sub.dueAmount(false, svc.renewalPeriod, svc.price)
 	available := normalizedcoins.SubCoins(sub.vault, due)
@@ -244,7 +238,7 @@ func Withdraw(cur realm, svcKey string, denom string, amount int64) {
 		panic("insufficient available balance to withdraw")
 	}
 	sub.vault = normalizedcoins.SubCoins(sub.vault, withdraw)
-	normalizedcoins.SendCoins(caller, withdraw)
+	normalizedcoins.SendCoins(0, cur, caller, withdraw)
 }
 
 // IsSubscribed checks if a user is currently subscribed to a service
@@ -259,7 +253,7 @@ func IsSubscribed(cur realm, svcKey string, userAddr string) bool {
 	if !svc.subscribers.Has(userAddr) {
 		return false
 	}
-	subValue, _ := svc.subscribers.Get(userAddr)
+	subValue := svc.subscribers.Get(userAddr)
 	sub := subValue.(*subscription)
 	return sub.isActive(svc.renewalPeriod, svc.price)
 }
@@ -269,11 +263,11 @@ func IsSubscribed(cur realm, svcKey string, userAddr string) bool {
 // - svcKey: the full service key (ownerAddr:displayName)
 func ServiceClaimVault(cur realm, svcKey string) {
 	svc := mustGetService(svcKey)
-	svc.owner.AssertOwned()
+	svc.owner.AssertOwnedBy(cur.Previous().Address())
 	balance := svc.balance(true)
 
 	if !normalizedcoins.CoinsHasPositive(balance) {
 		panic("no funds to claim")
 	}
-	normalizedcoins.SendCoins(svc.owner.Owner(), balance)
+	normalizedcoins.SendCoins(0, cur, svc.owner.Owner(), balance)
 }
