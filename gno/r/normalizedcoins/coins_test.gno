@@ -8,7 +8,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 )
 
-func TestPrefixCoins(t *testing.T) {
+func TestPrefixCoins(cur realm, t *testing.T) {
 	t.Run("native and grc20 coins", func(t *testing.T) {
 		native := chain.NewCoins(
 			chain.NewCoin("ugnot", 1000),
@@ -91,7 +91,7 @@ func TestPrefixCoins(t *testing.T) {
 	})
 }
 
-func TestCoinsHasNegative(t *testing.T) {
+func TestCoinsHasNegative(cur realm, t *testing.T) {
 	tests := []struct {
 		name     string
 		coins    chain.Coins
@@ -114,7 +114,7 @@ func TestCoinsHasNegative(t *testing.T) {
 	}
 }
 
-func TestCoinsHasPositive(t *testing.T) {
+func TestCoinsHasPositive(cur realm, t *testing.T) {
 	tests := []struct {
 		coins    chain.Coins
 		expected bool
@@ -134,7 +134,7 @@ func TestCoinsHasPositive(t *testing.T) {
 	}
 }
 
-func TestAddCoins(t *testing.T) {
+func TestAddCoins(cur realm, t *testing.T) {
 	a := chain.NewCoins(
 		chain.NewCoin("coinA", 100),
 		chain.NewCoin("coinB", 200),
@@ -170,7 +170,7 @@ func TestAddCoins(t *testing.T) {
 	}
 }
 
-func TestSubCoins(t *testing.T) {
+func TestSubCoins(cur realm, t *testing.T) {
 	a := chain.NewCoins(
 		chain.NewCoin("coinA", 300),
 		chain.NewCoin("coinB", 400),
@@ -206,7 +206,7 @@ func TestSubCoins(t *testing.T) {
 	}
 }
 
-func TestMultiplyCoins(t *testing.T) {
+func TestMultiplyCoins(cur realm, t *testing.T) {
 	coins := chain.NewCoins(
 		chain.NewCoin("coinA", 100),
 		chain.NewCoin("coinB", 200),
@@ -238,7 +238,7 @@ func TestMultiplyCoins(t *testing.T) {
 	}
 }
 
-func TestLessCoinsThan(t *testing.T) {
+func TestLessCoinsThan(cur realm, t *testing.T) {
 	tests := []struct {
 		name     string
 		a        chain.Coins
@@ -287,7 +287,7 @@ func TestLessCoinsThan(t *testing.T) {
 	}
 }
 
-func TestAddCoinAmount(t *testing.T) {
+func TestAddCoinAmount(cur realm, t *testing.T) {
 	coins := chain.NewCoins(
 		chain.NewCoin("coinA", 100),
 		chain.NewCoin("coinB", 200),
@@ -319,10 +319,9 @@ func TestAddCoinAmount(t *testing.T) {
 	}
 }
 
-func TestSendCoins(t *testing.T) {
-	alice := testutils.TestAddress("alice")
-	testing.SetOriginCaller(alice)
-	testing.SetRealm(testing.NewUserRealm(alice))
+func TestSendCoins(cur realm, t *testing.T) {
+	// SendCoins spends from the realm it is handed, here this package's own.
+	from := chain.PackageAddress("gno.land/r/samcrew/normalizedcoins")
 	coinsToSend := chain.NewCoins(
 		chain.NewCoin("/native/gno.land/r/samcrew/subscriptions:a", 100),
 		chain.NewCoin("/native/gno.land/r/samcrew/subscriptions:b", 200),
@@ -334,22 +333,21 @@ func TestSendCoins(t *testing.T) {
 		chain.NewCoin("gno.land/r/samcrew/subscriptions:b", 200),
 	)
 
-	testing.IssueCoins(alice, coinsToIssue)
+	testing.IssueCoins(from, coinsToIssue)
 
 	bob := testutils.TestAddress("bob")
-	testing.SetOriginSend(coinsToSend)
 
-	SendCoins(bob, coinsToSend)
+	SendCoins(0, cur, bob, coinsToSend)
 
-	banker := banker.NewBanker(banker.BankerTypeRealmIssue)
-	aliceCoins := banker.GetCoins(alice)
+	banker := banker.NewReadonlyBanker()
+	fromCoins := banker.GetCoins(from)
 	bobCoins := banker.GetCoins(bob)
 	for _, coin := range coinsToIssue {
-		aliceAmount := int64(0)
+		fromAmount := int64(0)
 		bobAmount := int64(0)
-		for _, aCoin := range aliceCoins {
+		for _, aCoin := range fromCoins {
 			if aCoin.Denom == coin.Denom {
-				aliceAmount = aCoin.Amount
+				fromAmount = aCoin.Amount
 				break
 			}
 		}
@@ -360,10 +358,10 @@ func TestSendCoins(t *testing.T) {
 			}
 		}
 
-		expectedAliceAmount := int64(0)
+		expectedFromAmount := int64(0)
 		expectedBobAmount := coin.Amount
-		if aliceAmount != expectedAliceAmount {
-			t.Fatalf("invalid alice amount for %s: got %d, want %d", coin.Denom, aliceAmount, expectedAliceAmount)
+		if fromAmount != expectedFromAmount {
+			t.Fatalf("invalid from amount for %s: got %d, want %d", coin.Denom, fromAmount, expectedFromAmount)
 		}
 		if bobAmount != expectedBobAmount {
 			t.Fatalf("invalid bob amount for %s: got %d, want %d", coin.Denom, bobAmount, expectedBobAmount)

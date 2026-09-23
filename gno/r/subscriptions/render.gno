@@ -2,17 +2,16 @@ package subscriptions
 
 import (
 	"chain"
-	"chain/runtime"
 	"net/url"
 	"strings"
 	"time"
 
-	"gno.land/p/moul/md"
+	"gno.land/p/moul/md/v0"
+	"gno.land/p/nt/avl/pager/v0"
 	"gno.land/p/nt/avl/v0"
-	"gno.land/p/nt/avl/v0/pager"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/sunspirit/table"
+	"gno.land/p/sunspirit/table/v0"
 )
 
 const (
@@ -37,8 +36,7 @@ func homeHandler(res *mux.ResponseWriter, req *mux.Request) {
 	out += md.Paragraph("Manage recurring subscription services with automated payments using native coins and GRC20 tokens.")
 
 	// Action buttons
-	r := runtime.CurrentRealm()
-	linkpath := getLinkPath(r.PkgPath())
+	linkpath := getLinkPath(realmPath)
 	out += md.Paragraph(md.Link("➕ Create New Service", linkpath+"$help&func=NewServiceSimple") + " • " + md.Link("👤 My Subscriptions", linkpath+":u"))
 	out += md.HorizontalRule()
 
@@ -94,8 +92,7 @@ func homeHandler(res *mux.ResponseWriter, req *mux.Request) {
 
 func userHandler(res *mux.ResponseWriter, req *mux.Request) {
 	userAddress := req.Query.Get("addr")
-	r := runtime.CurrentRealm()
-	linkpath := getLinkPath(r.PkgPath())
+	linkpath := getLinkPath(realmPath)
 
 	out := md.H1("User Subscriptions")
 
@@ -119,8 +116,8 @@ func userHandler(res *mux.ResponseWriter, req *mux.Request) {
 	out += md.HorizontalRule()
 
 	// Get user's subscriptions tree
-	userSubsRaw, exists := users.Get(userAddress)
-	if !exists {
+	userSubsRaw := users.Get(userAddress)
+	if userSubsRaw == nil {
 		out += md.Blockquote("This user has no active subscriptions.")
 		res.Write(out)
 		return
@@ -138,7 +135,7 @@ func userHandler(res *mux.ResponseWriter, req *mux.Request) {
 	for _, item := range page.Items {
 		svcKey := item.Key
 		svc := mustGetService(svcKey)
-		subRaw, _ := svc.subscribers.Get(userAddress)
+		subRaw := svc.subscribers.Get(userAddress)
 		sub := subRaw.(*subscription)
 		if sub.isActive(svc.renewalPeriod, svc.price) {
 			activeCount++
@@ -165,7 +162,7 @@ func userHandler(res *mux.ResponseWriter, req *mux.Request) {
 	for _, item := range page.Items {
 		svcKey := item.Key
 		svc := mustGetService(svcKey)
-		subRaw, _ := svc.subscribers.Get(userAddress)
+		subRaw := svc.subscribers.Get(userAddress)
 		sub := subRaw.(*subscription)
 		status := "Inactive"
 		if sub.isActive(svc.renewalPeriod, svc.price) {
@@ -199,8 +196,7 @@ func userHandler(res *mux.ResponseWriter, req *mux.Request) {
 func serviceHandler(res *mux.ResponseWriter, req *mux.Request) {
 	svcKey := req.GetVar("name")
 	svc := mustGetService(svcKey)
-	r := runtime.CurrentRealm()
-	linkpath := getLinkPath(r.PkgPath())
+	linkpath := getLinkPath(realmPath)
 
 	out := md.H1(svc.displayName)
 	out += md.Paragraph(svc.description)
@@ -216,11 +212,8 @@ func serviceHandler(res *mux.ResponseWriter, req *mux.Request) {
 		md.Link("Top Up", linkpath+"$help&func=Topup&svcKey="+url.QueryEscape(svcKey)),
 		md.Link("Unsubscribe", linkpath+"$help&func=Unsubscribe&svcKey="+url.QueryEscape(svcKey)),
 	}
-	// Add owner-only action
-	caller := runtime.PreviousRealm().Address()
-	if caller == svc.owner.Owner() {
-		actionLinks = append(actionLinks, md.Link("💸 Claim Vault (Owner)", linkpath+"$help&func=ServiceClaimVault&svcKey="+url.QueryEscape(svcKey)))
-	}
+	// Render cannot tell who is viewing, and ServiceClaimVault refuses anyone but the owner.
+	actionLinks = append(actionLinks, md.Link("💸 Claim Vault (Owner)", linkpath+"$help&func=ServiceClaimVault&svcKey="+url.QueryEscape(svcKey)))
 	out += md.Paragraph(strings.Join(actionLinks, " • "))
 	out += md.HorizontalRule()
 
@@ -257,7 +250,7 @@ func serviceHandler(res *mux.ResponseWriter, req *mux.Request) {
 		for i, tokenPath := range grc20Paths {
 			out += md.OrderedList([]string{
 				"Visit the GRC20 token: " + md.Link(tokenPath, tokenPath),
-				"Call the " + md.InlineCode("Approve") + " function with:\n   - " + md.Bold("spender:") + " " + md.InlineCode(runtime.CurrentRealm().Address().String()) + "\n   - " + md.Bold("amount:") + " the amount you want to deposit (or a large value for multiple top-ups)",
+				"Call the " + md.InlineCode("Approve") + " function with:\n   - " + md.Bold("spender:") + " " + md.InlineCode(chain.PackageAddress(realmPath).String()) + "\n   - " + md.Bold("amount:") + " the amount you want to deposit (or a large value for multiple top-ups)",
 				"Return here and use " + md.Link("Subscribe", linkpath+"$help&func=Subscribe&svcKey="+url.QueryEscape(svcKey)) + " or " + md.Link("Top Up", linkpath+"$help&func=Topup&svcKey="+url.QueryEscape(svcKey)) + " with the GRC20 token details",
 			})
 			if i < len(grc20Paths)-1 {
@@ -326,6 +319,9 @@ func serviceHandler(res *mux.ResponseWriter, req *mux.Request) {
 	}
 	res.Write(out)
 }
+
+// realmPath is where this realm is deployed; Render has no realm handle to read it from.
+const realmPath = "gno.land/r/samcrew/subscriptions"
 
 func getLinkPath(pkgPath string) string {
 	slashIdx := strings.IndexRune(pkgPath, '/')
