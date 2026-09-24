@@ -9,18 +9,23 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gno="${GNO:-gno}"
-known="$root/ci/known-failing.txt"
 log="$(mktemp "${TMPDIR:-/tmp}/gno-test.XXXXXX")"
-trap 'rm -f -- "$log"' EXIT
+known="$(mktemp "${TMPDIR:-/tmp}/gno-known.XXXXXX")"
+trap 'rm -f -- "$log" "$known"' EXIT
+
+# One reading of ci/known-failing.txt for every use below: surrounding
+# whitespace and a CR are stripped, and blank lines and comments (indented or
+# not) are dropped, so the validation and the lookup cannot disagree.
+sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+  "$root/ci/known-failing.txt" | grep -v -e '^$' -e '^#' > "$known" || true
 
 is_known() {
-  grep -v '^[[:space:]]*#' "$known" | grep -qxF -- "$1"
+  grep -qxF -- "$1" "$known"
 }
 
 # Every listed entry must still name a package, or a rename would silently
 # turn an expected failure into an untested path.
 while IFS= read -r entry; do
-  case "$entry" in ''|'#'*) continue ;; esac
   [ -f "$root/$entry/gnomod.toml" ] || {
     echo "::error file=ci/known-failing.txt::$entry is not a package (no gnomod.toml)"
     exit 1
@@ -29,7 +34,8 @@ done < "$known"
 
 pass=0 expected=0 bad=0
 cd "$root"
-for dir in $(find gno -name gnomod.toml -exec dirname {} \; | LC_ALL=C sort); do
+while IFS= read -r -d '' mod; do
+  dir="${mod%/gnomod.toml}"
   if "$gno" test "./$dir" > "$log" 2>&1; then status=ok; else status=fail; fi
   if is_known "$dir"; then
     if [ "$status" = ok ]; then
@@ -47,8 +53,15 @@ for dir in $(find gno -name gnomod.toml -exec dirname {} \; | LC_ALL=C sort); do
     sed 's/^/    /' "$log"
     bad=$((bad + 1))
   fi
-done
+done < <(find gno -name gnomod.toml -print0 | LC_ALL=C sort -z)
 
 echo
 echo "$pass passed, $expected failed as expected (ci/known-failing.txt), $bad unexpected"
+
+# Nothing found is not a pass: a moved gno/ or a broken find would otherwise
+# end here with every counter at zero and exit 0.
+if [ $((pass + expected + bad)) -eq 0 ]; then
+  echo "::error::no package found under gno/, so nothing was tested"
+  exit 1
+fi
 [ "$bad" -eq 0 ]
