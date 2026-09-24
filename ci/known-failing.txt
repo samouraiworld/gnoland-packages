@@ -3,7 +3,7 @@
 # remove an entry in the same pull request that fixes the package.
 
 # Written against an older gno: imports gno.land/p/demo/tokens/grc20, which is
-# now gno.land/p/nt/grc20/v0 (see README "Outdated").
+# now gno.land/p/nt/grc20/v0 (see README "Work in progress").
 gno/r/payrolls
 
 # Builds, but its tests import gno.land/r/tests/vm/test20. gno fetches any
