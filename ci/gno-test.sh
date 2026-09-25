@@ -22,7 +22,9 @@ cleanup() {
 }
 trap cleanup EXIT
 # An untrapped signal ends bash without running the EXIT trap, which would
-# leave a probe file (below) in the tree.
+# leave a probe file (below) in the tree. HUP is a closed terminal or SSH
+# session.
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
