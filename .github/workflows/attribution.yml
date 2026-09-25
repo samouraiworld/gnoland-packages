@@ -44,12 +44,67 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Read by the submodule step below.
+          submodules: true
 
       - name: Prove this check can fail
         run: .github/scripts/check-vendor-attribution.selftest.sh
 
       - name: No tracked file carries assistant attribution
         run: python3 .github/scripts/check-vendor-attribution.py .
+
+      # The step above reads a submodule's path but not its contents: in this
+      # tree a submodule is a commit id. gnodaokit's own repository runs no
+      # attribution check, and its tree is published from here too, so every
+      # submodule is read here, at the commit this repository pins.
+      #
+      # Fail closed. A submodule directory that was never populated is an
+      # empty directory inside THIS repository, where `git ls-files` lists
+      # nothing, and the checker reads nothing as a clean pass. So each one
+      # must be a checkout of its own, at the pinned commit, before it is read.
+      - name: No tracked file in a submodule carries assistant attribution
+        shell: bash
+        run: |
+          # Listed to a file first, so a `git` that failed stops the step
+          # instead of reading as a tree with no submodule.
+          entries="$(mktemp)"
+          git ls-files -z --stage > "$entries"
+          scanned=0
+          while IFS= read -r -d '' entry; do
+            meta="${entry%%$'\t'*}" path="${entry#*$'\t'}"
+            case "$meta" in 160000\ *) ;; *) continue ;; esac
+            pinned="$(printf '%s' "$meta" | cut -d' ' -f2)"
+            # An empty prefix means `path` is the top of a work tree; in an
+            # unpopulated directory git answers for this repository instead.
+            prefix="$(git -C "$path" rev-parse --show-prefix 2>/dev/null || echo none)"
+            if [ -n "$prefix" ]; then
+              echo "::error::submodule $path is not checked out, so nothing in it can be read"
+              exit 1
+            fi
+            at="$(git -C "$path" rev-parse HEAD)"
+            if [ "$at" != "$pinned" ]; then
+              echo "::error::submodule $path is at $at, not at $pinned, the commit this tree pins"
+              exit 1
+            fi
+            # A submodule inside it would be skipped the same way; nothing
+            # here reads a second level, so refuse rather than pass it unread.
+            # A here-string, not a pipe: `grep -q` leaving a pipe early fails
+            # the writer under pipefail, which would read as "none found".
+            listing="$(git -C "$path" ls-files --stage)"
+            if grep -q '^160000 ' <<< "$listing"; then
+              echo "::error::submodule $path has submodules of its own, which this step does not read"
+              exit 1
+            fi
+            python3 .github/scripts/check-vendor-attribution.py "$path"
+            scanned=$((scanned + 1))
+          done < "$entries"
+          # Every submodule .gitmodules declares must have been read above.
+          declared="$(git config --file .gitmodules --get-regexp '^submodule\..*\.path$' | wc -l || true)"
+          if [ "$scanned" -ne "$declared" ]; then
+            echo "::error::.gitmodules declares $declared submodules and $scanned were read"
+            exit 1
+          fi
 
   metadata-attribution:
     name: Vendor attribution (the surfaces that are not files)
