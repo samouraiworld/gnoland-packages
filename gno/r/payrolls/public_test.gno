@@ -7,7 +7,7 @@ import (
 	"gno.land/p/nt/testutils"
 	"gno.land/p/nt/urequire"
 	grc20factory "gno.land/r/demo/defi/grc20factory"
-	"gno.land/r/demo/payrolls"
+	"gno.land/r/samcrew/payrolls"
 )
 
 func TestPayrollsGRC20(t *testing.T) {
@@ -18,7 +18,7 @@ func TestPayrollsGRC20(t *testing.T) {
 	urequire.NoError(t, err)
 
 	tokenCreator := testutils.TestAddress("pay-creator")
-	payrollsRealm := testing.NewCodeRealm("gno.land/r/demo/payrolls")
+	payrollsRealm := testing.NewCodeRealm("gno.land/r/samcrew/payrolls")
 	creator := testutils.TestAddress("creator")
 	beneficiary := testutils.TestAddress("beneficiary")
 
@@ -139,7 +139,7 @@ func TestPayrollsNative(t *testing.T) {
 	monthlyPayrollsCoins, err := payrolls.Coins(cross, monthlyNatives, nil)
 	urequire.NoError(t, err)
 
-	payrollsRealm := testing.NewCodeRealm("gno.land/r/demo/payrolls")
+	payrollsRealm := testing.NewCodeRealm("gno.land/r/samcrew/payrolls")
 	creator := testutils.TestAddress("creator")
 	beneficiary := testutils.TestAddress("beneficiary")
 
