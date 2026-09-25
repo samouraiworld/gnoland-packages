@@ -3,12 +3,14 @@
 # remove an entry in the same pull request that fixes the package.
 #
 # One cause per line: the package, then the error it is expected to fail on,
-# copied from the `gno test` output (a fixed string, not a pattern). A package
-# may list several causes. It counts as an expected failure only when the
-# output shows every cause listed for it and no other error; a type error, a
-# failing test or one more missing import fails the job. For a cause of the
-# form `package "X" is not available`, the other lines gno prints because X
-# could not be fetched are accounted for with it.
+# copied from the `gno test` output (a fixed string, not a pattern). The only
+# cause accepted is a missing import, written in full as
+# `package "<import path>" is not available`; anything shorter or of another
+# kind is refused, so no entry can excuse more than one import. A package may
+# list several causes. It counts as an expected failure only when the output
+# shows every cause listed for it and no other error; a type error, a failing
+# test or one more missing import fails the job. The other lines gno prints
+# because X could not be fetched are accounted for with its cause.
 #
 # Measured with the pinned gno: after a bump, run ci/gno-test.sh and copy the
 # new wording here if it changed.

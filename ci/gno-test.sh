@@ -46,7 +46,10 @@ is_known() {
 
 # Every listed entry must still name a package, or a rename would silently
 # turn an expected failure into an untested path. And every entry must pin a
-# cause: a bare package name would accept any failure at all.
+# cause of the one shape below, naming a whole import path: a bare package name
+# would accept any failure at all, and a shortened cause such as `is not
+# available` would excuse every import that goes missing later.
+cause_re='^package "[a-z0-9./_-]+" is not available$'
 while IFS=$'\t' read -r entry cause; do
   [ -f "$root/$entry/gnomod.toml" ] || {
     echo "::error file=ci/known-failing.txt::$entry is not a package (no gnomod.toml)"
@@ -56,6 +59,10 @@ while IFS=$'\t' read -r entry cause; do
     echo "::error file=ci/known-failing.txt::$entry pins no cause; write the error it is expected to fail on after the package"
     exit 1
   }
+  [[ "$cause" =~ $cause_re ]] || {
+    echo "::error file=ci/known-failing.txt::$entry pins the cause '$cause'; a cause must read exactly: package \"<import path>\" is not available"
+    exit 1
+  }
 done < "$known"
 
 # unexplained <package>: prints every line of $log that the causes pinned for
@@ -63,14 +70,17 @@ done < "$known"
 # Empty output means the package failed exactly as pinned.
 #
 # A cause is a fixed string, never a regular expression, so a `.` in an import
-# path cannot match more than it says. A line is accounted for when it:
-#   - contains a pinned cause;
+# path cannot match more than it says. Every cause reads `package "X" is not
+# available` (checked above). A line is accounted for when it:
+#   - is the `Msg Traces` frame that carries a pinned cause, the frame
+#     (`0 <file>.go:<line> - `) followed by the cause and nothing else: the
+#     whole line is compared, not a part of it;
 #   - is progress or the frame of an error dump, which carries no message of
 #     its own (the message is on its `Msg Traces` line, which must be pinned);
 #   - is gno's summary of this package's failure;
-#   - or, for a cause `package "X" is not available`, is one of the three
-#     lines gno prints because X could not be fetched: the failed file query,
-#     the `[setup failed]` line for X, and the failed open of X's directory.
+#   - or is one of the three lines gno prints because a pinned X could not be
+#     fetched: the failed file query, the `[setup failed]` line for X, and the
+#     failed open of X's directory.
 # Anything else, a type error, a panic, a failing test, an import that is not
 # pinned, is an error nobody expected, and the package fails the job.
 unexplained() {
@@ -80,16 +90,18 @@ unexplained() {
     }
     $1 == pkg {
       n++; cause[n] = $2; seen[n] = 0
-      if (match($2, /^package "[^"]+" is not available$/))
-        missing[n] = substr($2, 10, length($2) - 9 - length("\" is not available"))
+      missing[n] = substr($2, 10, length($2) - 9 - length("\" is not available"))
     }
     END {
       while ((getline line < logf) > 0) {
         explained = 0
-        for (i = 1; i <= n; i++)
-          if (index(line, cause[i])) { seen[i] = 1; explained = 1 }
-        if (explained) continue
         l = line; gsub(/[ \t]+/, " ", l); sub(/^ /, "", l); sub(/ $/, "", l)
+        if (match(l, /^[0-9]+ [^ ]+\.go:[0-9]+ - /)) {
+          msg = substr(l, RLENGTH + 1)
+          for (i = 1; i <= n; i++)
+            if (msg == cause[i]) { seen[i] = 1; explained = 1 }
+        }
+        if (explained) continue
         if (l ~ /^gno: downloading [^ ]+$/ ||
             l == "--= Error =--" || l == "Msg Traces:" || l == "Stack Trace:" ||
             l == "Data: &vm.InvalidPackageError{abciError:vm.abciError{}}" ||
@@ -100,7 +112,6 @@ unexplained() {
           continue
         for (i = 1; i <= n; i++) {
           x = missing[i]
-          if (x == "") continue
           if (ends(l, "/pkg/mod/" x ": query files list for pkg \"" x "\": qfile failed: invalid package") ||
               (index(l, "FAIL ") == 1 && ends(l, "/pkg/mod/" x " [setup failed]")) ||
               (index(l, ":0: open ") && ends(l, "/pkg/mod/" x ": no such file or directory (code=gnoUnknownError)"))) {
