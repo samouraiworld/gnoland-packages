@@ -40,3 +40,10 @@ gno test ./gno/...
   the pull request that fixes that package, or CI goes red.
 - **Attribution** checks that no tracked file, commit message, branch name or
   pull request credits the assistant used to write the change.
+
+## License
+
+[MIT](LICENSE), except [`gno/p/keccak256`](gno/p/keccak256), a port of Go's
+`x/crypto/sha3` that keeps the Go Authors' BSD license
+([`gno/p/keccak256/LICENSE`](gno/p/keccak256/LICENSE)). The gnodaokit
+submodule is licensed by its own repository.
