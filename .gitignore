@@ -1,0 +1,2 @@
+# Written, then removed, by ci/gno-test.sh in each package it compiles.
+zz_ci_compile_probe_test.gno

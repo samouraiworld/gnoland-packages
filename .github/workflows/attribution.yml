@@ -1,0 +1,258 @@
+# Attribution gate.
+#
+# Nothing published from this repository -- a tracked file, a commit message, a
+# branch or tag name, a pull-request title or body -- may credit the AI
+# assistant used to produce the work. A recursive grep cannot enforce that: PNG
+# metadata is binary, and a manifest can hold the name base64-encoded.
+# .github/scripts/check-vendor-attribution.py reads every tracked file as bytes
+# (decoding base64 runs and inflating compressed PNG chunks) and, with --text,
+# the surfaces that are not files. Its self-test runs before every scan, so a
+# check that can no longer fail is caught before it is trusted to pass.
+#
+# A workflow of its own rather than jobs in gno-test.yml: the title and body gates
+# need the pull_request `edited` event, and adding that to ci.yml would re-run
+# the gno tests -- and, through its concurrency group, cancel any run in
+# flight -- on every edit of a PR description.
+#
+# OWNER ACTION: once green, add "Vendor attribution" and "Vendor attribution
+# (the surfaces that are not files)" to the branch-protection required checks
+# (exact-name matching).
+
+name: Attribution
+
+on:
+  pull_request:
+    # `edited` is not in the default set. Without it the title and body gates
+    # are advisory: both stay editable after the checks have passed.
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+    # A tag name and its annotation are surfaces no other event carries.
+    tags: ['**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  attribution:
+    name: Vendor attribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Read by the submodule step below.
+          submodules: true
+
+      - name: Prove this check can fail
+        run: .github/scripts/check-vendor-attribution.selftest.sh
+
+      - name: No tracked file carries assistant attribution
+        run: python3 .github/scripts/check-vendor-attribution.py .
+
+      # The step above reads a submodule's path but not its contents: in this
+      # tree a submodule is a commit id. gnodaokit's own repository runs no
+      # attribution check, and its tree is published from here too, so every
+      # submodule is read here, at the commit this repository pins.
+      #
+      # Fail closed. A submodule directory that was never populated is an
+      # empty directory inside THIS repository, where `git ls-files` lists
+      # nothing, and the checker reads nothing as a clean pass. So each one
+      # must be a checkout of its own, at the pinned commit, before it is read.
+      #
+      # Nothing in a submodule is exempt. The allowlist names paths of THIS
+      # repository, relative to its root, and the checker reads it from beside
+      # itself whatever root it is given: with the submodule as root, an entry
+      # `x` would also exempt `gnodaokit/x`. So the submodules are read by a
+      # copy of the checker, unchanged, with an empty allowlist beside it.
+      - name: No tracked file in a submodule carries assistant attribution
+        shell: bash
+        run: |
+          bare="$(mktemp -d)"
+          cp .github/scripts/check-vendor-attribution.py "$bare/"
+          : > "$bare/vendor-attribution-allowlist.txt"
+          # Listed to a file first, so a `git` that failed stops the step
+          # instead of reading as a tree with no submodule.
+          entries="$(mktemp)"
+          git ls-files -z --stage > "$entries"
+          scanned=0
+          while IFS= read -r -d '' entry; do
+            meta="${entry%%$'\t'*}" path="${entry#*$'\t'}"
+            case "$meta" in 160000\ *) ;; *) continue ;; esac
+            pinned="$(printf '%s' "$meta" | cut -d' ' -f2)"
+            # An empty prefix means `path` is the top of a work tree; in an
+            # unpopulated directory git answers for this repository instead.
+            prefix="$(git -C "$path" rev-parse --show-prefix 2>/dev/null || echo none)"
+            if [ -n "$prefix" ]; then
+              echo "::error::submodule $path is not checked out, so nothing in it can be read"
+              exit 1
+            fi
+            at="$(git -C "$path" rev-parse HEAD)"
+            if [ "$at" != "$pinned" ]; then
+              echo "::error::submodule $path is at $at, not at $pinned, the commit this tree pins"
+              exit 1
+            fi
+            # A submodule inside it would be skipped the same way; nothing
+            # here reads a second level, so refuse rather than pass it unread.
+            # A here-string, not a pipe: `grep -q` leaving a pipe early fails
+            # the writer under pipefail, which would read as "none found".
+            listing="$(git -C "$path" ls-files --stage)"
+            if grep -q '^160000 ' <<< "$listing"; then
+              echo "::error::submodule $path has submodules of its own, which this step does not read"
+              exit 1
+            fi
+            python3 "$bare/check-vendor-attribution.py" "$path"
+            scanned=$((scanned + 1))
+          done < "$entries"
+          # Every submodule .gitmodules declares must have been read above.
+          declared="$(git config --file .gitmodules --get-regexp '^submodule\..*\.path$' | wc -l || true)"
+          if [ "$scanned" -ne "$declared" ]; then
+            echo "::error::.gitmodules declares $declared submodules and $scanned were read"
+            exit 1
+          fi
+
+  metadata-attribution:
+    name: Vendor attribution (the surfaces that are not files)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        # Naming bash gets `-eo pipefail`. Every step below pipes a producer
+        # into the checker; without pipefail a failed `git` would send an empty
+        # stream on and the surface would read as absent.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Every commit a range below reads must be reachable, and the sha it
+          # starts from with them: the pull request's base, the push's
+          # previous tip, or the default branch a new tag is read against.
+          # No `ref:` -- the default pull-request ref is the merge commit, whose
+          # second parent is the head, so the head sha is present even for a
+          # fork, where a bare head sha would be in no fetched ref.
+          fetch-depth: 0
+
+      - name: Prove these checks can fail
+        run: .github/scripts/check-vendor-attribution.selftest.sh
+
+      # Event data goes through `env:`, never interpolated into `run:`: a
+      # pull-request title is written by whoever opened it.
+      - name: The branch name carries no attribution
+        env:
+          REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: >-
+          printf '%s' "$REF" |
+          python3 .github/scripts/check-vendor-attribution.py --text "branch name"
+
+      - name: No commit message on this branch carries attribution
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # `before` only on a push. A `synchronize` pull-request event carries
+          # a `before` too, and it must not be mistaken for a push's.
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          PUSHED: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # Pull request: every commit the branch adds, ending at the head sha
+          # rather than the generated merge commit.
+          #
+          # Push: every commit the push added, `before..sha`. A push to `main`
+          # is normally one squash commit, whose text the merger can edit in
+          # the merge dialog after every pull-request check has run. But a push
+          # can carry several commits (an administrator bypassing protection, a
+          # tag moved forward), and reading the tip alone would let every
+          # commit under it through unread.
+          #
+          # `before` is all zeros when the push CREATED the ref: here a new
+          # tag, since `main` already exists. There is no previous tip, so a
+          # new ref reads every commit reachable from it that the default
+          # branch does not hold -- not every branch on `origin`, because a
+          # branch pushed without a pull request has never been read. When that
+          # is nothing (a release tag on a commit `main` has), the tagged commit
+          # alone is read, so an ordinary tag does not meet the checker's
+          # refusal of an empty surface.
+          #
+          # A force push, where `before` is not an ancestor of `sha`, needs no
+          # case of its own: `before..sha` is every commit reachable from `sha`
+          # and not from `before`, the rewritten history. What it cannot
+          # survive is `before` ABSENT from this clone (a tip force-pushed away
+          # is on no ref, so `fetch-depth: 0` does not bring it): git could not
+          # resolve the range, so that is refused with its own message. A push
+          # that moves a ref BACKWARDS lists no commit, and the checker refuses
+          # that as nothing scanned. Both fail closed on purpose; force-moving
+          # an annotated tag meets the first, and a protected `main` neither.
+          #
+          # Two dots are right for `git log`: commits in the tip and not in the
+          # start, whether or not the start is an ancestor.
+          created=0000000000000000000000000000000000000000
+          if [ -n "$BASE" ]; then
+            set -- "$BASE..$HEAD_SHA"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "$created" ]; then
+            if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              echo "::error::the previous tip $BEFORE is not in this clone," \
+                "so the commits this push added cannot be listed and none was scanned"
+              exit 1
+            fi
+            set -- "$BEFORE..$PUSHED"
+          elif [ -n "$BEFORE" ]; then
+            held="refs/remotes/origin/$DEFAULT_BRANCH"
+            if [ -z "$DEFAULT_BRANCH" ] || ! git rev-parse --verify --quiet "$held^{commit}" >/dev/null; then
+              echo "::error::'$held' is not in this clone, so the commits this new ref" \
+                "brings cannot be told from the default branch's and none was scanned"
+              exit 1
+            fi
+            # Into a variable first, so a `git rev-list` that failed stops the
+            # step instead of reading as an empty list.
+            unread="$(git rev-list "$PUSHED" --not "$held")"
+            if [ -n "$unread" ]; then
+              set -- "$PUSHED" --not "$held"
+            else
+              set -- -1 "$PUSHED"
+            fi
+          else
+            # A push event with no `before` at all is not one this workflow
+            # knows; refuse rather than guess a range.
+            echo "::error::no base sha and no previous tip, so no commit range to read"
+            exit 1
+          fi
+          git log --format=%B "$@" |
+            python3 .github/scripts/check-vendor-attribution.py \
+              --text "commit messages on this branch"
+
+      # Conditional on the event rather than tolerant of an empty surface: a
+      # mistyped field name is empty on every event and would pass forever.
+      - name: The pull request title carries no attribution
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: >-
+          printf '%s' "$TITLE" |
+          python3 .github/scripts/check-vendor-attribution.py
+          --text "pull request title"
+
+      # --allow-empty: GitHub requires a title but not a body. A bot's body is
+      # exempt: Dependabot quotes upstream release notes it did not write. Its
+      # title, commits and files are still scanned. The squash message is
+      # the commit messages, not the PR body, so an exempt bot body never
+      # reaches main's history.
+      - name: The pull request body carries no attribution
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.type != 'Bot'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: >-
+          printf '%s' "$BODY" |
+          python3 .github/scripts/check-vendor-attribution.py
+          --text "pull request body" --allow-empty
+
+      - name: No tag on this commit carries attribution
+        run: >-
+          git tag --points-at HEAD --format='%(refname:strip=2)%0a%(contents)' |
+          python3 .github/scripts/check-vendor-attribution.py
+          --text "tags on this commit" --allow-empty

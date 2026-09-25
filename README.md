@@ -30,3 +30,16 @@ git clone --recurse-submodules https://github.com/samouraiworld/gnoland-packages
 cd gnoland-packages
 gno test ./gno/...
 ```
+
+## CI
+
+- **Gno test** builds gno at the revision gno.land mainnet runs
+  ([`ci/gno-ref.env`](ci/gno-ref.env)) and tests every package under `gno/`
+  with [`ci/gno-test.sh`](ci/gno-test.sh). A package with no test file is
+  still compiled. Packages in [`ci/known-failing.txt`](ci/known-failing.txt)
+  must fail, on the cause pinned there and nothing else; remove an entry in the
+  pull request that fixes that package, or CI goes red.
+- **Attribution** checks that no tracked file (the files inside submodules
+  included), no commit message in the range a push or pull request adds (every
+  commit, not only the tip), no branch or tag, and no pull request credits the
+  assistant used to write the change.
