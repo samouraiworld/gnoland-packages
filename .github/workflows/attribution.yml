@@ -63,9 +63,18 @@ jobs:
       # empty directory inside THIS repository, where `git ls-files` lists
       # nothing, and the checker reads nothing as a clean pass. So each one
       # must be a checkout of its own, at the pinned commit, before it is read.
+      #
+      # Nothing in a submodule is exempt. The allowlist names paths of THIS
+      # repository, relative to its root, and the checker reads it from beside
+      # itself whatever root it is given: with the submodule as root, an entry
+      # `x` would also exempt `gnodaokit/x`. So the submodules are read by a
+      # copy of the checker, unchanged, with an empty allowlist beside it.
       - name: No tracked file in a submodule carries assistant attribution
         shell: bash
         run: |
+          bare="$(mktemp -d)"
+          cp .github/scripts/check-vendor-attribution.py "$bare/"
+          : > "$bare/vendor-attribution-allowlist.txt"
           # Listed to a file first, so a `git` that failed stops the step
           # instead of reading as a tree with no submodule.
           entries="$(mktemp)"
@@ -96,7 +105,7 @@ jobs:
               echo "::error::submodule $path has submodules of its own, which this step does not read"
               exit 1
             fi
-            python3 .github/scripts/check-vendor-attribution.py "$path"
+            python3 "$bare/check-vendor-attribution.py" "$path"
             scanned=$((scanned + 1))
           done < "$entries"
           # Every submodule .gitmodules declares must have been read above.
