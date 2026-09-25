@@ -35,8 +35,9 @@ gno test ./gno/...
 
 - **Gno test** builds gno at the revision gno.land mainnet runs
   ([`ci/gno-ref.env`](ci/gno-ref.env)) and tests every package under `gno/`
-  with [`ci/gno-test.sh`](ci/gno-test.sh). Packages in
-  [`ci/known-failing.txt`](ci/known-failing.txt) must fail; remove an entry in
-  the pull request that fixes that package, or CI goes red.
+  with [`ci/gno-test.sh`](ci/gno-test.sh). A package with no test file is
+  still compiled. Packages in [`ci/known-failing.txt`](ci/known-failing.txt)
+  must fail, on the cause pinned there and nothing else; remove an entry in the
+  pull request that fixes that package, or CI goes red.
 - **Attribution** checks that no tracked file, commit message, branch name or
   pull request credits the assistant used to write the change.
