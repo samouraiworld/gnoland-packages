@@ -39,5 +39,7 @@ gno test ./gno/...
   still compiled. Packages in [`ci/known-failing.txt`](ci/known-failing.txt)
   must fail, on the cause pinned there and nothing else; remove an entry in the
   pull request that fixes that package, or CI goes red.
-- **Attribution** checks that no tracked file, commit message, branch name or
-  pull request credits the assistant used to write the change.
+- **Attribution** checks that no tracked file (the files inside submodules
+  included), no commit message in the range a push or pull request adds (every
+  commit, not only the tip), no branch or tag, and no pull request credits the
+  assistant used to write the change.
