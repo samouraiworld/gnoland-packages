@@ -119,7 +119,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The branch's own commits and the base sha must both be reachable.
+          # Every commit a range below reads must be reachable, and the sha it
+          # starts from with them: the pull request's base, the push's
+          # previous tip, or the default branch a new tag is read against.
           # No `ref:` -- the default pull-request ref is the merge commit, whose
           # second parent is the head, so the head sha is present even for a
           # fork, where a bare head sha would be in no fetched ref.
@@ -141,14 +143,75 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # `before` only on a push. A `synchronize` pull-request event carries
+          # a `before` too, and it must not be mistaken for a push's.
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          PUSHED: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           # Pull request: every commit the branch adds, ending at the head sha
-          # rather than the generated merge commit. Push: the head commit alone
-          # -- on main that is the squash commit, whose text the merger can edit
-          # in the merge dialog after every pull-request check has run.
-          # Two dots are right for `git log`: commits in HEAD_SHA and not in BASE.
-          if [ -n "$BASE" ]; then range="$BASE..$HEAD_SHA"; else range="-1"; fi
-          git log --format=%B "$range" |
+          # rather than the generated merge commit.
+          #
+          # Push: every commit the push added, `before..sha`. A push to `main`
+          # is normally one squash commit, whose text the merger can edit in
+          # the merge dialog after every pull-request check has run. But a push
+          # can carry several commits (an administrator bypassing protection, a
+          # tag moved forward), and reading the tip alone would let every
+          # commit under it through unread.
+          #
+          # `before` is all zeros when the push CREATED the ref: here a new
+          # tag, since `main` already exists. There is no previous tip, so a
+          # new ref reads every commit reachable from it that the default
+          # branch does not hold -- not every branch on `origin`, because a
+          # branch pushed without a pull request has never been read. When that
+          # is nothing (a release tag on a commit `main` has), the tagged commit
+          # alone is read, so an ordinary tag does not meet the checker's
+          # refusal of an empty surface.
+          #
+          # A force push, where `before` is not an ancestor of `sha`, needs no
+          # case of its own: `before..sha` is every commit reachable from `sha`
+          # and not from `before`, the rewritten history. What it cannot
+          # survive is `before` ABSENT from this clone (a tip force-pushed away
+          # is on no ref, so `fetch-depth: 0` does not bring it): git could not
+          # resolve the range, so that is refused with its own message. A push
+          # that moves a ref BACKWARDS lists no commit, and the checker refuses
+          # that as nothing scanned. Both fail closed on purpose; force-moving
+          # an annotated tag meets the first, and a protected `main` neither.
+          #
+          # Two dots are right for `git log`: commits in the tip and not in the
+          # start, whether or not the start is an ancestor.
+          created=0000000000000000000000000000000000000000
+          if [ -n "$BASE" ]; then
+            set -- "$BASE..$HEAD_SHA"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "$created" ]; then
+            if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              echo "::error::the previous tip $BEFORE is not in this clone," \
+                "so the commits this push added cannot be listed and none was scanned"
+              exit 1
+            fi
+            set -- "$BEFORE..$PUSHED"
+          elif [ -n "$BEFORE" ]; then
+            held="refs/remotes/origin/$DEFAULT_BRANCH"
+            if [ -z "$DEFAULT_BRANCH" ] || ! git rev-parse --verify --quiet "$held^{commit}" >/dev/null; then
+              echo "::error::'$held' is not in this clone, so the commits this new ref" \
+                "brings cannot be told from the default branch's and none was scanned"
+              exit 1
+            fi
+            # Into a variable first, so a `git rev-list` that failed stops the
+            # step instead of reading as an empty list.
+            unread="$(git rev-list "$PUSHED" --not "$held")"
+            if [ -n "$unread" ]; then
+              set -- "$PUSHED" --not "$held"
+            else
+              set -- -1 "$PUSHED"
+            fi
+          else
+            # A push event with no `before` at all is not one this workflow
+            # knows; refuse rather than guess a range.
+            echo "::error::no base sha and no previous tip, so no commit range to read"
+            exit 1
+          fi
+          git log --format=%B "$@" |
             python3 .github/scripts/check-vendor-attribution.py \
               --text "commit messages on this branch"
 
