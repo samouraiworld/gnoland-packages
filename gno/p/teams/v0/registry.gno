@@ -373,23 +373,31 @@ func validateName(name string) {
 	}
 }
 
-// validateAvatar accepts "" or one emoji: at most 8 code points, every one from
-// the emoji blocks or the joiners and selectors that build one, so no avatar
-// carries a letter or markdown into a page.
+// validateAvatar accepts "" or one emoji: at most 8 code points from the emoji
+// blocks or the joiners and selectors that build one, at least one of them a
+// picture, so no avatar spells a letter, carries markdown or shows as nothing.
+// Flag letters count only as one pair making the whole avatar, a flag.
 func validateAvatar(avatar string) {
-	n := 0
+	n, pictures, flagLetters := 0, 0, 0
 	for _, c := range avatar {
 		n++
 		switch {
 		case c == 0x200D, c == 0xFE0F, c == 0x20E3: // joiner, emoji style, keycap
-		case c >= 0x2190 && c <= 0x2BFF: // arrows, symbols, dingbats
-		case c >= 0x1F000 && c <= 0x1FAFF: // pictographs, flags, faces
 		case c >= 0xE0020 && c <= 0xE007F: // tag letters in subdivision flags
+		case c >= 0x1F1E6 && c <= 0x1F1FF: // flag letters
+			flagLetters++
+			pictures++
+		case c >= 0x2400 && c <= 0x24FF, c >= 0x2800 && c <= 0x28FF: // control pictures, circled letters, braille
+			panic("team avatar must be one emoji")
+		case c >= 0x1F100 && c <= 0x1F1E5: // boxed and circled letters, before the flag letters
+			panic("team avatar must be one emoji")
+		case c >= 0x2190 && c <= 0x2BFF, c >= 0x1F000 && c <= 0x1FAFF: // symbols, pictographs, flags
+			pictures++
 		default:
 			panic("team avatar must be one emoji")
 		}
 	}
-	if n > 8 {
+	if n > 8 || (n > 0 && pictures == 0) || (flagLetters > 0 && (flagLetters != 2 || n != 2)) {
 		panic("team avatar must be one emoji")
 	}
 }

@@ -255,6 +255,13 @@ func TestSearch(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(r.Render("search?q=zebra", nil), "No team found."))
 	uassert.True(t, strings.Contains(r.Render("search", nil), "Type the start"))
 	uassert.True(t, strings.Contains(r.Render("search?q=wolf&page=9", nil), "(21)"))
+	// A page number past the last lists nothing, however large: no offset wraps
+	// round to teams outside the prefix.
+	for _, huge := range []string{"9", "461168601842738791", "9223372036854775807"} {
+		far := r.Render("search?q=wolf&page="+huge, nil)
+		uassert.Equal(t, 0, strings.Count(far, "Wolf Pack "), far)
+		uassert.False(t, strings.Contains(far, "Red Foxes"), far)
+	}
 
 	// An id finds its team, with or without the #, beside the name matches.
 	byID := r.Render("search?q=%2322", nil)
@@ -282,7 +289,9 @@ func TestAvatar(cur realm, t *testing.T) {
 	for _, ok := range []string{"🏳️‍🌈", "👩‍💻", "🇫🇷", "⚽", "❤️", ""} {
 		r.SetAvatar(alice, id, ok)
 	}
-	for _, bad := range []string{"a", ":)", "🦊a", "![x](y)", "<b>", "🦊🦊🦊🦊🦊🦊🦊🦊🦊", "\u202e🦊"} {
+	// Circled and boxed letters spell words, and joiners or a braille blank alone show nothing.
+	for _, bad := range []string{"a", ":)", "🦊a", "![x](y)", "<b>", "🦊🦊🦊🦊🦊🦊🦊🦊🦊", "\u202e🦊",
+		"Ⓥ", "🅰", "🄰", "⒜", "␀", "🇶🇶🇶", "🇫🇷🦊", "🇫", "\u200d", "\ufe0f", "\U000E0067", "\u2800"} {
 		uassert.PanicsWithMessage(t, cur, "team avatar must be one emoji", func() {
 			r.SetAvatar(alice, id, bad)
 		}, bad)

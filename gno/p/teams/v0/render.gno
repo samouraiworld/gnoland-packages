@@ -119,8 +119,9 @@ func (v *view) search(res *mux.ResponseWriter, req *mux.Request) {
 	page.TotalPages = (total + pageSize - 1) / pageSize
 	page.HasPrev = number > 1
 	page.HasNext = number < page.TotalPages
-	skip := (number - 1) * pageSize
-	if skip < total {
+	// A page past the last lists nothing, and the bound keeps skip from wrapping.
+	if number <= page.TotalPages {
+		skip := (number - 1) * pageSize
 		count := total - skip
 		if count > pageSize {
 			count = pageSize
