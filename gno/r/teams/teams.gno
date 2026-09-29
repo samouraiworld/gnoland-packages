@@ -34,7 +34,7 @@ var (
 	invited avl.Tree // address -> *avl.Tree of seqid string -> true
 )
 
-// Exists reports whether a team with this id was created.
+// Exists reports whether a team with this id exists; a deleted team does not.
 func Exists(id uint64) bool {
 	return lookup(id) != nil
 }
@@ -105,15 +105,30 @@ func addMember(t *team, addr address) {
 	dropInvite(t, addr)
 }
 
+// removeMember takes addr out of t. The owner may leave only as the last
+// member, and that deletes the team.
 func removeMember(t *team, addr address) {
-	if addr == t.owner {
-		panic("the owner cannot leave, transfer ownership first")
-	}
 	if !t.members.Has(addr.String()) {
 		panic("not a member")
 	}
+	if addr == t.owner && t.members.Size() > 1 {
+		panic("the owner cannot leave while others remain, transfer ownership first")
+	}
 	t.members.Remove(addr.String())
 	indexRemove(&players, addr, t.id)
+	if t.members.Size() == 0 {
+		deleteTeam(t)
+	}
+}
+
+// deleteTeam frees the team's name and withdraws its pending invites.
+func deleteTeam(t *team) {
+	t.invites.Iterate("", "", func(k string, _ any) bool {
+		indexRemove(&invited, address(k), t.id)
+		return false
+	})
+	names.Remove(strings.ToLower(t.name))
+	teams.Remove(t.id.String())
 }
 
 func setInvite(t *team, addr address) {

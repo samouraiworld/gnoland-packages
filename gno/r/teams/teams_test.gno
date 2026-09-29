@@ -141,11 +141,11 @@ func TestLeaveAndOwnership(cur realm, t *testing.T) {
 	Join(cross(cur), id)
 
 	testing.SetRealm(testing.NewUserRealm(alice))
-	urequire.AbortsWithMessage(t, cur, "the owner cannot leave, transfer ownership first", func(cur realm) {
+	urequire.AbortsWithMessage(t, cur, "the owner cannot leave while others remain, transfer ownership first", func(cur realm) {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		Leave(cross(cur), id)
 	})
-	urequire.AbortsWithMessage(t, cur, "the owner cannot leave, transfer ownership first", func(cur realm) {
+	urequire.AbortsWithMessage(t, cur, "the owner cannot leave while others remain, transfer ownership first", func(cur realm) {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		RemoveMember(cross(cur), id, alice)
 	})
@@ -167,6 +167,29 @@ func TestLeaveAndOwnership(cur realm, t *testing.T) {
 		testing.SetRealm(testing.NewUserRealm(carol))
 		Leave(cross(cur), id)
 	})
+}
+
+func TestLastMemberDeletesTeam(cur realm, t *testing.T) {
+	// A player handed a team without asking can still get out: once alone,
+	// leaving deletes the team.
+	testing.SetRealm(testing.NewUserRealm(alice))
+	id := CreateTeam(cross(cur), "Short Lived", "", false)
+	AddMember(cross(cur), id, bob)
+	Invite(cross(cur), id, carol)
+	TransferOwnership(cross(cur), id, bob)
+	Leave(cross(cur), id)
+
+	testing.SetRealm(testing.NewUserRealm(bob))
+	Leave(cross(cur), id)
+	uassert.False(t, Exists(id))
+	uassert.False(t, IsMember(id, bob))
+	uassert.False(t, containsID(TeamsOf(bob), id))
+	uassert.False(t, containsID(indexIDs(&invited, carol), id))
+	uassert.True(t, strings.Contains(Render("team/"+strconv.FormatUint(id, 10)), "Team not found"))
+
+	// The name is free again, under a new id.
+	again := CreateTeam(cross(cur), "short lived", "", false)
+	uassert.NotEqual(t, id, again)
 }
 
 func TestRender(cur realm, t *testing.T) {

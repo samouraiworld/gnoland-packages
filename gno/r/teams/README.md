@@ -12,8 +12,10 @@ A team's owner picks how players get in, and all three ways work at once:
   side can withdraw it with `CancelInvite`.
 - **Direct**: the owner calls `AddMember`, with no step from the player.
 
-`SetOpen` switches a team between open and invite only. The owner cannot leave
-or be removed until `TransferOwnership` hands the team to another member.
+`SetOpen` switches a team between open and invite only. While others remain,
+the owner stays until `TransferOwnership` hands the team to another member. The
+last member to `Leave` deletes the team: its name is free again, its pending
+invites are withdrawn, and `Exists` reads false for its id.
 
 ## Usage in a game
 

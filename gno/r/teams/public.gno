@@ -86,12 +86,13 @@ func AddMember(cur realm, id uint64, player address) {
 	addMember(t, player)
 }
 
-// RemoveMember takes player out of the team. Owner only, and not themself.
+// RemoveMember takes player out of the team. Owner only.
 func RemoveMember(cur realm, id uint64, player address) {
 	removeMember(mustOwn(cur, id), player)
 }
 
-// Leave takes the caller out of the team. The owner transfers ownership first.
+// Leave takes the caller out of the team. The owner can leave only as the last
+// member, which deletes the team and frees its name.
 func Leave(cur realm, id uint64) {
 	removeMember(mustGet(id), cur.Previous().Address())
 }
