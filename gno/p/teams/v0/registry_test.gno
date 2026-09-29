@@ -19,7 +19,7 @@ var (
 
 func TestCreate(cur realm, t *testing.T) {
 	r := NewRegistry()
-	id := r.Create(alice, "Red Foxes", "We hunt at night", true)
+	id := r.Create(alice, "Red Foxes", "We hunt at night", "", true)
 
 	uassert.True(t, r.Exists(id))
 	uassert.Equal(t, "Red Foxes", r.Name(id))
@@ -29,15 +29,15 @@ func TestCreate(cur realm, t *testing.T) {
 	uassert.True(t, containsID(r.TeamsOf(alice), id))
 
 	uassert.PanicsWithMessage(t, cur, "team name already taken", func() {
-		r.Create(bob, "red foxes", "", false)
+		r.Create(bob, "red foxes", "", "", false)
 	})
 	for _, name := range []string{"ab", strings.Repeat("a", 33), " Lead", "Two  spaces", "Emoji🦊", "[link](x)"} {
 		uassert.PanicsContains(t, cur, "team name", func() {
-			r.Create(bob, name, "", false)
+			r.Create(bob, name, "", "", false)
 		}, name)
 	}
 	uassert.PanicsWithMessage(t, cur, "team description must fit on one line", func() {
-		r.Create(bob, "Blue Owls", "line\nbreak", false)
+		r.Create(bob, "Blue Owls", "line\nbreak", "", false)
 	})
 	uassert.PanicsWithMessage(t, cur, "only the team owner can do this", func() {
 		r.SetDescription(bob, id, "hijacked")
@@ -48,8 +48,8 @@ func TestCreate(cur realm, t *testing.T) {
 
 func TestRegistriesAreSeparate(cur realm, t *testing.T) {
 	a, b := NewRegistry(), NewRegistry()
-	ida := a.Create(alice, "Same Name", "", true)
-	idb := b.Create(bob, "Same Name", "", true)
+	ida := a.Create(alice, "Same Name", "", "", true)
+	idb := b.Create(bob, "Same Name", "", "", true)
 
 	uassert.Equal(t, ida, idb)
 	uassert.Equal(t, alice, a.Owner(ida))
@@ -59,7 +59,7 @@ func TestRegistriesAreSeparate(cur realm, t *testing.T) {
 
 func TestAddresses(cur realm, t *testing.T) {
 	r := NewRegistry()
-	id := r.Create(alice, "Spellings", "", false)
+	id := r.Create(alice, "Spellings", "", "", false)
 
 	// Other spellings of carol's address decode, yet no signer produces them.
 	for _, other := range []address{address(strings.ToUpper(carol.String())), bech32m(carol)} {
@@ -79,8 +79,8 @@ func TestAddresses(cur realm, t *testing.T) {
 
 func TestJoinModes(cur realm, t *testing.T) {
 	r := NewRegistry()
-	open := r.Create(alice, "Open Door", "", true)
-	closed := r.Create(alice, "Locked Door", "", false)
+	open := r.Create(alice, "Open Door", "", "", true)
+	closed := r.Create(alice, "Locked Door", "", "", false)
 
 	r.Join(bob, open)
 	uassert.True(t, r.IsMember(open, bob))
@@ -109,7 +109,7 @@ func TestJoinModes(cur realm, t *testing.T) {
 
 func TestCancelInvite(cur realm, t *testing.T) {
 	r := NewRegistry()
-	id := r.Create(alice, "Invite Only", "", false)
+	id := r.Create(alice, "Invite Only", "", "", false)
 	r.Invite(alice, id, bob)
 	r.Invite(alice, id, carol)
 
@@ -128,7 +128,7 @@ func TestCancelInvite(cur realm, t *testing.T) {
 
 func TestLeaveAndOwnership(cur realm, t *testing.T) {
 	r := NewRegistry()
-	id := r.Create(alice, "Hand Over", "", true)
+	id := r.Create(alice, "Hand Over", "", "", true)
 	r.Join(bob, id)
 	r.Join(carol, id)
 
@@ -153,7 +153,7 @@ func TestLastMemberDeletesTeam(cur realm, t *testing.T) {
 	// A player handed a team without asking can still get out: once alone,
 	// leaving deletes the team.
 	r := NewRegistry()
-	id := r.Create(alice, "Short Lived", "", false)
+	id := r.Create(alice, "Short Lived", "", "", false)
 	r.AddMember(alice, id, bob)
 	r.Invite(alice, id, carol)
 	r.TransferOwnership(alice, id, bob)
@@ -167,13 +167,13 @@ func TestLastMemberDeletesTeam(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(r.Render("team/"+strconv.FormatUint(id, 10), nil), "Team not found"))
 
 	// The name is free again, under a new id.
-	again := r.Create(bob, "short lived", "", false)
+	again := r.Create(bob, "short lived", "", "", false)
 	uassert.NotEqual(t, id, again)
 }
 
 func TestRender(cur realm, t *testing.T) {
 	r := NewRegistry()
-	id := r.Create(alice, "Render Crew", "Markdown *is* escaped", false)
+	id := r.Create(alice, "Render Crew", "Markdown *is* escaped", "", false)
 	r.Invite(alice, id, bob)
 	ids := strconv.FormatUint(id, 10)
 
@@ -206,7 +206,7 @@ func TestRender(cur realm, t *testing.T) {
 func TestRenderPaging(cur realm, t *testing.T) {
 	r := NewRegistry()
 	for i := 0; i < pageSize+1; i++ {
-		id := r.Create(alice, "Paged "+strconv.Itoa(i), "", false)
+		id := r.Create(alice, "Paged "+strconv.Itoa(i), "", "", false)
 		r.AddMember(alice, id, carol)
 		r.Invite(alice, id, bob)
 	}
@@ -226,8 +226,8 @@ func TestRenderPaging(cur realm, t *testing.T) {
 
 func TestHomeListsNewestFirst(cur realm, t *testing.T) {
 	r := NewRegistry()
-	r.Create(alice, "Oldest Crew", "", true)
-	r.Create(alice, "Newest Crew", "", true)
+	r.Create(alice, "Oldest Crew", "", "", true)
+	r.Create(alice, "Newest Crew", "", "", true)
 
 	home := r.Render("", nil)
 	uassert.True(t, strings.Index(home, "Newest Crew") < strings.Index(home, "Oldest Crew"), home)
@@ -236,9 +236,9 @@ func TestHomeListsNewestFirst(cur realm, t *testing.T) {
 func TestSearch(cur realm, t *testing.T) {
 	r := NewRegistry()
 	for i := 0; i < pageSize+1; i++ {
-		r.Create(alice, "Wolf Pack "+strconv.Itoa(100+i), "", true)
+		r.Create(alice, "Wolf Pack "+strconv.Itoa(100+i), "", "", true)
 	}
-	r.Create(alice, "Red Foxes", "", true)
+	r.Create(alice, "Red Foxes", "", "", true)
 
 	// A prefix matches whatever the case, and nothing outside the prefix.
 	first := r.Render("search?q=WOLF", nil)
@@ -271,6 +271,32 @@ func TestSearch(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(odd, `\<img`), odd)
 	uassert.True(t, strings.Contains(odd, `value="&#34;&gt;&lt;img`), odd)
 	uassert.Equal(t, 0, strings.Count(odd, `"><img`)+strings.Count(odd, " <img"), odd)
+}
+
+func TestAvatar(cur realm, t *testing.T) {
+	r := NewRegistry()
+	id := r.Create(alice, "Fox Den", "", "🦊", true)
+	uassert.True(t, strings.Contains(r.Render("team/"+strconv.FormatUint(id, 10), nil), "# 🦊 Fox Den"))
+
+	// Joined, styled and flag emoji pass; letters, markdown and long runs do not.
+	for _, ok := range []string{"🏳️‍🌈", "👩‍💻", "🇫🇷", "⚽", "❤️", ""} {
+		r.SetAvatar(alice, id, ok)
+	}
+	for _, bad := range []string{"a", ":)", "🦊a", "![x](y)", "<b>", "🦊🦊🦊🦊🦊🦊🦊🦊🦊", "\u202e🦊"} {
+		uassert.PanicsWithMessage(t, cur, "team avatar must be one emoji", func() {
+			r.SetAvatar(alice, id, bad)
+		}, bad)
+	}
+	uassert.PanicsWithMessage(t, cur, "only the team owner can do this", func() {
+		r.SetAvatar(bob, id, "🐺")
+	})
+	uassert.PanicsWithMessage(t, cur, "team avatar must be one emoji", func() {
+		r.Create(alice, "Bad Avatar", "", "x", true)
+	})
+
+	// An empty avatar shows the coloured dot again.
+	r.SetAvatar(alice, id, "")
+	uassert.True(t, strings.Contains(r.Render("", nil), chip(r.mustGet(id))+" [Fox Den]("))
 }
 
 // bech32m spells addr with the bech32m checksum instead of bech32.

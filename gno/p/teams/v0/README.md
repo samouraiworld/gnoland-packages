@@ -26,11 +26,11 @@ import pteams "gno.land/p/samcrew/teams/v0"
 
 var registry = pteams.NewRegistry() // unexported, never handed out
 
-func CreateTeam(cur realm, name, description string, open bool) uint64 {
+func CreateTeam(cur realm, name, description, avatar string, open bool) uint64 {
 	if cur.Previous().Address() == banned {
 		panic("not in this game")
 	}
-	return registry.Create(cur.Previous().Address(), name, description, open)
+	return registry.Create(cur.Previous().Address(), name, description, avatar, open)
 }
 
 func Render(path string) string { return registry.Render(path, nil) }
@@ -46,10 +46,11 @@ go in its functions before the call.
 or the team with that id when the text is a number, `team/<id>` and
 `player/<address>`. Every team shows its id, and every table 20 rows a page.
 Their buttons link to the calling realm's functions by name, so a realm serving
-them exposes `CreateTeam(name, description, open)`, `Join(id)`, `Leave(id)`,
+them exposes `CreateTeam(name, description, avatar, open)`, `Join(id)`, `Leave(id)`,
 `Invite(id, player)`, `CancelInvite(id, player)`, `AddMember(id, player)`,
 `RemoveMember(id, player)`, `SetOpen(id, open)`, `SetDescription(id,
-description)` and `TransferOwnership(id, newOwner)`. The second argument names a
+description)`, `SetAvatar(id, avatar)` and `TransferOwnership(id, newOwner)`. An
+avatar is one emoji, and a team without one shows a coloured dot. The second argument names a
 player, a registered username for one; nil shows a short address.
 
 ## Reads
@@ -58,3 +59,12 @@ player, a registered username for one; nil shows a short address.
 and `Members` panic on an id with no team, a deleted one included, so check
 `Exists` first. Every read takes any spelling of an address that decodes, upper
 case included, and every write refuses all but the one a signer produces.
+
+## Events
+
+Every change emits one event, each carrying `realm`, the realm whose registry
+changed, and `team`, the id: `TeamCreated` with `name` and `owner`,
+`TeamUpdated` with `field`, `MemberJoined` and `MemberLeft` with `player` and
+`via`, `InviteSent` and `InviteCanceled` with `player`, `OwnershipTransferred`
+with `from` and `to`, and `TeamDeleted` with `name`. The VM stamps each with
+this package's path, so `realm` is what tells one game's registry from another.

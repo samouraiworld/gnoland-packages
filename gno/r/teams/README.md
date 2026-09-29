@@ -26,7 +26,8 @@ None of them take a `realm` argument, so a game calls them without `cross`.
 included, so a game holding an old id checks `Exists` first. The slices
 `Members` and `TeamsOf` return belong to this realm: copy one before sorting or
 writing into it. A game calling a function that changes a team acts as itself,
-never as its player.
+never as its player. Every change emits an event whose `realm` attribute reads
+`gno.land/r/samcrew/teams`, listed in the registry's README.
 
 ## Pages
 

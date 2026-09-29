@@ -14,8 +14,14 @@ var registry = pteams.NewRegistry()
 
 // CreateTeam creates a team owned by the caller, who becomes its first member.
 // An open team lets anyone join; otherwise players need an invite or the owner.
-func CreateTeam(cur realm, name, description string, open bool) uint64 {
-	return registry.Create(cur.Previous().Address(), name, description, open)
+// avatar is one emoji, or empty for a coloured dot.
+func CreateTeam(cur realm, name, description, avatar string, open bool) uint64 {
+	return registry.Create(cur.Previous().Address(), name, description, avatar, open)
+}
+
+// SetAvatar replaces the team's emoji, empty restoring its coloured dot. Owner only.
+func SetAvatar(cur realm, id uint64, avatar string) {
+	registry.SetAvatar(cur.Previous().Address(), id, avatar)
 }
 
 // SetDescription replaces the team's description. Owner only.

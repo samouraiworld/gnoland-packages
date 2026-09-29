@@ -8,6 +8,8 @@
 package teams
 
 import (
+	"chain"
+	"chain/runtime/unsafe"
 	"crypto/bech32"
 	"strings"
 	"time"
@@ -26,6 +28,7 @@ type team struct {
 	id          seqid.ID
 	name        string
 	description string
+	avatar      string // an emoji, or "" for the coloured dot
 	owner       address
 	open        bool // anyone may join without an invite
 	createdAt   time.Time
@@ -86,9 +89,11 @@ func (r *Registry) TeamsOf(addr address) []uint64 {
 
 // Create makes a team owned by caller, who becomes its first member. An open
 // team lets anyone join; otherwise players need an invite or the owner.
-func (r *Registry) Create(caller address, name, description string, open bool) uint64 {
+// avatar is one emoji, or "" for a coloured dot.
+func (r *Registry) Create(caller address, name, description, avatar string, open bool) uint64 {
 	validateName(name)
 	validateDescription(description)
+	validateAvatar(avatar)
 	key := strings.ToLower(name)
 	if r.names.Has(key) {
 		panic("team name already taken")
@@ -99,6 +104,7 @@ func (r *Registry) Create(caller address, name, description string, open bool) u
 		id:          id,
 		name:        name,
 		description: description,
+		avatar:      avatar,
 		owner:       caller,
 		open:        open,
 		createdAt:   time.Now(),
@@ -107,7 +113,8 @@ func (r *Registry) Create(caller address, name, description string, open bool) u
 	}
 	r.teams.Set(id.String(), t)
 	r.names.Set(key, id.String())
-	r.addMember(t, caller)
+	emit("TeamCreated", t, "name", name, "owner", caller.String())
+	r.addMember(t, caller, "create")
 	return uint64(id)
 }
 
@@ -116,11 +123,22 @@ func (r *Registry) SetDescription(caller address, id uint64, description string)
 	t := r.mustOwn(caller, id)
 	validateDescription(description)
 	t.description = description
+	emit("TeamUpdated", t, "field", "description")
+}
+
+// SetAvatar replaces the team's emoji, "" restoring its coloured dot. Owner only.
+func (r *Registry) SetAvatar(caller address, id uint64, avatar string) {
+	t := r.mustOwn(caller, id)
+	validateAvatar(avatar)
+	t.avatar = avatar
+	emit("TeamUpdated", t, "field", "avatar")
 }
 
 // SetOpen lets anyone join the team when open is true. Owner only.
 func (r *Registry) SetOpen(caller address, id uint64, open bool) {
-	r.mustOwn(caller, id).open = open
+	t := r.mustOwn(caller, id)
+	t.open = open
+	emit("TeamUpdated", t, "field", "open")
 }
 
 // Join adds caller to an open team, or to any team that invited them.
@@ -129,7 +147,7 @@ func (r *Registry) Join(caller address, id uint64) {
 	if !t.open && !t.invites.Has(caller.String()) {
 		panic("this team is invite only")
 	}
-	r.addMember(t, caller)
+	r.addMember(t, caller, "join")
 }
 
 // Invite lets player call Join while the team is invite only. Owner only.
@@ -141,6 +159,7 @@ func (r *Registry) Invite(caller address, id uint64, player address) {
 	}
 	t.invites.Set(player.String(), time.Now())
 	indexAdd(&r.invited, player, t.id)
+	emit("InviteSent", t, "player", player.String())
 }
 
 // CancelInvite withdraws an invite. The owner or the invited player may call it.
@@ -152,24 +171,25 @@ func (r *Registry) CancelInvite(caller address, id uint64, player address) {
 	if !r.dropInvite(t, player) {
 		panic("no invite for this player")
 	}
+	emit("InviteCanceled", t, "player", player.String())
 }
 
 // AddMember puts player in the team without asking them. Owner only.
 func (r *Registry) AddMember(caller address, id uint64, player address) {
 	t := r.mustOwn(caller, id)
 	mustValidAddress(player)
-	r.addMember(t, player)
+	r.addMember(t, player, "add")
 }
 
 // RemoveMember takes player out of the team. Owner only.
 func (r *Registry) RemoveMember(caller address, id uint64, player address) {
-	r.removeMember(r.mustOwn(caller, id), player)
+	r.removeMember(r.mustOwn(caller, id), player, "remove")
 }
 
 // Leave takes caller out of the team. The owner can leave only as the last
 // member, which deletes the team and frees its name.
 func (r *Registry) Leave(caller address, id uint64) {
-	r.removeMember(r.mustGet(id), caller)
+	r.removeMember(r.mustGet(id), caller, "leave")
 }
 
 // TransferOwnership hands the team to another member. Owner only.
@@ -178,6 +198,7 @@ func (r *Registry) TransferOwnership(caller address, id uint64, newOwner address
 	if !t.members.Has(newOwner.String()) {
 		panic("the new owner must be a member")
 	}
+	emit("OwnershipTransferred", t, "from", t.owner.String(), "to", newOwner.String())
 	t.owner = newOwner
 }
 
@@ -206,18 +227,20 @@ func (r *Registry) mustOwn(caller address, id uint64) *team {
 	return t
 }
 
-func (r *Registry) addMember(t *team, addr address) {
+// addMember puts addr in t; via says how, create, join or add.
+func (r *Registry) addMember(t *team, addr address, via string) {
 	if t.members.Has(addr.String()) {
 		panic("already a member")
 	}
 	t.members.Set(addr.String(), time.Now())
 	indexAdd(&r.players, addr, t.id)
 	r.dropInvite(t, addr)
+	emit("MemberJoined", t, "player", addr.String(), "via", via)
 }
 
-// removeMember takes addr out of t. The owner may leave only as the last
-// member, and that deletes the team.
-func (r *Registry) removeMember(t *team, addr address) {
+// removeMember takes addr out of t; via says how, leave or remove. The owner may
+// leave only as the last member, and that deletes the team.
+func (r *Registry) removeMember(t *team, addr address, via string) {
 	if !t.members.Has(addr.String()) {
 		panic("not a member")
 	}
@@ -226,6 +249,7 @@ func (r *Registry) removeMember(t *team, addr address) {
 	}
 	t.members.Remove(addr.String())
 	indexRemove(&r.players, addr, t.id)
+	emit("MemberLeft", t, "player", addr.String(), "via", via)
 	if t.members.Size() == 0 {
 		r.deleteTeam(t)
 	}
@@ -239,6 +263,14 @@ func (r *Registry) deleteTeam(t *team) {
 	})
 	r.names.Remove(strings.ToLower(t.name))
 	r.teams.Remove(t.id.String())
+	emit("TeamDeleted", t, "name", t.name)
+}
+
+// emit records a change for indexers. The VM stamps an event with this
+// package's path, so realm names the realm whose registry changed.
+func emit(typ string, t *team, attrs ...string) {
+	head := []string{"realm", unsafe.CurrentRealm().PkgPath(), "team", idText(t.id)}
+	chain.Emit(typ, append(head, attrs...)...)
 }
 
 func (r *Registry) dropInvite(t *team, addr address) bool {
@@ -338,6 +370,27 @@ func validateName(name string) {
 		default:
 			panic("team name may only use letters, digits, spaces, - and _")
 		}
+	}
+}
+
+// validateAvatar accepts "" or one emoji: at most 8 code points, every one from
+// the emoji blocks or the joiners and selectors that build one, so no avatar
+// carries a letter or markdown into a page.
+func validateAvatar(avatar string) {
+	n := 0
+	for _, c := range avatar {
+		n++
+		switch {
+		case c == 0x200D, c == 0xFE0F, c == 0x20E3: // joiner, emoji style, keycap
+		case c >= 0x2190 && c <= 0x2BFF: // arrows, symbols, dingbats
+		case c >= 0x1F000 && c <= 0x1FAFF: // pictographs, flags, faces
+		case c >= 0xE0020 && c <= 0xE007F: // tag letters in subdivision flags
+		default:
+			panic("team avatar must be one emoji")
+		}
+	}
+	if n > 8 {
+		panic("team avatar must be one emoji")
 	}
 }
 

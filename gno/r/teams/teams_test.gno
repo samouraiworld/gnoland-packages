@@ -20,7 +20,7 @@ var (
 // owner checks hold for calls that arrive here.
 func TestCallerIsWhoCalls(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateTeam(cross(cur), "Wired", "", false)
+	id := CreateTeam(cross(cur), "Wired", "", "", false)
 	uassert.Equal(t, alice, Owner(id))
 	Invite(cross(cur), id, bob)
 
@@ -41,13 +41,13 @@ func TestCallerIsWhoCalls(cur realm, t *testing.T) {
 func TestRealmCallerActsAsItself(cur realm, t *testing.T) {
 	game := testing.NewCodeRealm("gno.land/r/samcrew/somegame")
 	testing.SetRealm(game)
-	id := CreateTeam(cross(cur), "Game Owned", "", true)
+	id := CreateTeam(cross(cur), "Game Owned", "", "", true)
 	uassert.Equal(t, chain.PackageAddress("gno.land/r/samcrew/somegame"), Owner(id))
 }
 
 func TestRenderLinksHere(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateTeam(cross(cur), "Linked", "", true)
+	id := CreateTeam(cross(cur), "Linked", "", "", true)
 	ids := strconv.FormatUint(id, 10)
 
 	// gnoweb renders as the realm itself, and the links take its path.

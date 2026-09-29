@@ -180,7 +180,7 @@ func (v *view) team(res *mux.ResponseWriter, req *mux.Request) {
 	ids := idText(t.id)
 
 	s := v.nav()
-	s += "# " + chip(t.id) + " " + md.EscapeText(t.name) + "\n\n"
+	s += "# " + chip(t) + " " + md.EscapeText(t.name) + "\n\n"
 	if t.description == "" {
 		s += "*No description yet.*\n\n"
 	} else {
@@ -207,6 +207,7 @@ func (v *view) team(res *mux.ResponseWriter, req *mux.Request) {
 		md.Link("➖ Remove a player", txlink.Call("RemoveMember", "id", ids)),
 		md.Link(openToggleLabel(t), txlink.Call("SetOpen", "id", ids, "open", strconv.FormatBool(!t.open))),
 		md.Link("✏️ Edit the description", txlink.Call("SetDescription", "id", ids)),
+		md.Link("🎨 Change the avatar", txlink.Call("SetAvatar", "id", ids)),
 		md.Link("🤝 Hand over ownership", txlink.Call("TransferOwnership", "id", ids)),
 	}) + "\n"
 	s += "---\n\n"
@@ -323,7 +324,7 @@ func openToggleLabel(t *team) string {
 }
 
 func (v *view) teamLink(t *team) string {
-	return chip(t.id) + " " + md.Link(t.name, v.link+":team/"+idText(t.id)) + " " + teamID(t)
+	return chip(t) + " " + md.Link(t.name, v.link+":team/"+idText(t.id)) + " " + teamID(t)
 }
 
 // playerLink shows the name nameOf gives, or a short address.
@@ -347,8 +348,12 @@ func teamID(t *team) string {
 	return md.InlineCode("#" + idText(t.id))
 }
 
-func chip(id seqid.ID) string {
-	return palette[int(id)%len(palette)]
+// chip is the team's avatar, or a coloured dot picked from its id.
+func chip(t *team) string {
+	if t.avatar != "" {
+		return t.avatar
+	}
+	return palette[int(t.id)%len(palette)]
 }
 
 func idText(id seqid.ID) string {
