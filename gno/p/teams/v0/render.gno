@@ -1,7 +1,10 @@
 package teams
 
 import (
+	"chain/runtime"
+	"chain/runtime/unsafe"
 	"strconv"
+	"strings"
 	"time"
 
 	"gno.land/p/moul/md/v0"
@@ -11,46 +14,51 @@ import (
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/r/sys/users"
 )
 
-const (
-	realmLink = "/r/samcrew/teams"
-	pageSize  = 20
-)
+const pageSize = 20
 
 // palette gives each team a coloured dot, picked by its id.
 var palette = []string{"🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "🟤", "⚫"}
 
-var router *mux.Router
-
-func init() {
-	router = mux.NewRouter()
-	router.HandleFunc("", renderHome)
-	router.HandleFunc("team/{id}", renderTeam)
-	router.HandleFunc("player/{address}", renderPlayer)
+// view is one Render call: the registry, the realm serving it and how that
+// realm names a player.
+type view struct {
+	r      *Registry
+	pkg    string // the realm's package path, gno.land/r/...
+	link   string // the same path as a page link, /r/...
+	nameOf func(address) string
 }
 
-func Render(path string) string {
+// Render returns the page at path for the realm calling it: every team, one
+// team, or one player. nameOf gives a player's display name, a registered
+// username for one, and may be nil or return "" to show a short address.
+func (r *Registry) Render(path string, nameOf func(address) string) string {
+	pkg := unsafe.CurrentRealm().PkgPath()
+	v := &view{r: r, pkg: pkg, link: strings.TrimPrefix(pkg, runtime.ChainDomain()), nameOf: nameOf}
+	router := mux.NewRouter()
+	router.HandleFunc("", v.home)
+	router.HandleFunc("team/{id}", v.team)
+	router.HandleFunc("player/{address}", v.player)
 	return router.Render(path)
 }
 
-func renderHome(res *mux.ResponseWriter, req *mux.Request) {
+func (v *view) home(res *mux.ResponseWriter, req *mux.Request) {
 	s := "# ⚔️ Teams\n\n"
 	s += "Build a team with your friends and bring it into any game on gno.land.\n\n"
 	s += md.Columns([]string{
-		stat(teams.Size(), "🛡️ teams"),
-		stat(players.Size(), "🧑‍🤝‍🧑 players"),
+		stat(v.r.teams.Size(), "🛡️ teams"),
+		stat(v.r.players.Size(), "🧑‍🤝‍🧑 players"),
 		md.Bold(md.Link("➕ Create a team", txlink.Call("CreateTeam"))) + "\n\nPick a name, open it to all or keep it invite only.",
 	}, false)
-	s += "\n> 🔎 Your teams and invites are at `" + realmLink + ":player/<your address>`\n\n"
+	s += "\n> 🔎 Your teams and invites are at `" + v.link + ":player/<your address>`\n\n"
 	s += "---\n\n"
 
-	s += ufmt.Sprintf("## 🛡️ All teams (%d)\n\n", teams.Size())
-	if teams.Size() == 0 {
+	s += ufmt.Sprintf("## 🛡️ All teams (%d)\n\n", v.r.teams.Size())
+	if v.r.teams.Size() == 0 {
 		s += "No team yet. Create the first one!\n\n"
 	} else {
-		page := pagerFor(&teams, "page").MustGetPageByPath(req.RawPath)
+		page := pagerFor(&v.r.teams, "page").MustGetPageByPath(req.RawPath)
 		s += "| Team | Owner | Members | Joining | |\n"
 		s += "| --- | --- | ---: | --- | --- |\n"
 		for _, item := range page.Items {
@@ -60,7 +68,7 @@ func renderHome(res *mux.ResponseWriter, req *mux.Request) {
 				join = md.Link("🙋 Join", txlink.Call("Join", "id", idText(t.id)))
 			}
 			s += ufmt.Sprintf("| %s | %s | %d | %s | %s |\n",
-				teamLink(t), playerLink(t.owner), t.members.Size(), joining(t), join)
+				v.teamLink(t), v.playerLink(t.owner), t.members.Size(), joining(t), join)
 		}
 		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
@@ -68,27 +76,24 @@ func renderHome(res *mux.ResponseWriter, req *mux.Request) {
 
 	s += "## 🎮 Use teams in your game\n\n"
 	s += "Import the realm and read the teams your players belong to.\n\n"
-	s += md.LanguageCodeBlock("go", `import "gno.land/r/samcrew/teams"
+	s += md.LanguageCodeBlock("go", `import "`+v.pkg+`"
 
 if !teams.IsMember(teamID, player) {
 	panic("join the team first")
-}
-for _, id := range teams.TeamsOf(player) {
-	println(teams.Name(id))
 }`) + "\n"
 	res.Write(s)
 }
 
-func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
+func (v *view) team(res *mux.ResponseWriter, req *mux.Request) {
 	id, err := strconv.ParseUint(req.GetVar("id"), 10, 64)
-	t := lookup(id)
+	t := v.r.lookup(id)
 	if err != nil || t == nil {
-		res.Write(notFound("Team not found"))
+		res.Write(v.notFound("Team not found"))
 		return
 	}
 	ids := idText(t.id)
 
-	s := nav()
+	s := v.nav()
 	s += "# " + chip(t.id) + " " + md.EscapeText(t.name) + "\n\n"
 	if t.description == "" {
 		s += "*No description yet.*\n\n"
@@ -97,7 +102,7 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 	}
 	s += "📅 Created " + date(t.createdAt) + "\n\n"
 	s += md.Columns([]string{
-		"**👑 Owner**\n\n" + playerLink(t.owner),
+		"**👑 Owner**\n\n" + v.playerLink(t.owner),
 		"**👥 Members**\n\n" + strconv.Itoa(t.members.Size()),
 		"**🚪 Joining**\n\n" + joining(t),
 	}, false)
@@ -126,7 +131,7 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 	s += "| --- | --- | --- |\n"
 	for _, item := range page.Items {
 		addr := address(item.Key)
-		s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(addr), role(t, addr), date(item.Value.(time.Time)))
+		s += ufmt.Sprintf("| %s | %s | %s |\n", v.playerLink(addr), role(t, addr), date(item.Value.(time.Time)))
 	}
 	s += "\n" + page.Picker(req.RawPath) + "\n\n"
 
@@ -138,39 +143,39 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 		page := pagerFor(t.invites, "invites").MustGetPageByPath(req.RawPath)
 		for _, item := range page.Items {
 			cancel := md.Link("❌ Cancel", txlink.Call("CancelInvite", "id", ids, "player", item.Key))
-			s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(address(item.Key)), date(item.Value.(time.Time)), cancel)
+			s += ufmt.Sprintf("| %s | %s | %s |\n", v.playerLink(address(item.Key)), date(item.Value.(time.Time)), cancel)
 		}
 		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
 	res.Write(s)
 }
 
-func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
+func (v *view) player(res *mux.ResponseWriter, req *mux.Request) {
 	addr := normalize(address(req.GetVar("address")))
 	if !addr.IsValid() {
-		res.Write(notFound("Not a valid address"))
+		res.Write(v.notFound("Not a valid address"))
 		return
 	}
 
-	s := nav()
-	s += "# 🧑 " + playerLink(addr) + "\n\n"
+	s := v.nav()
+	s += "# 🧑 " + v.playerLink(addr) + "\n\n"
 
-	teamIDs := indexTree(&players, addr)
+	teamIDs := indexTree(&v.r.players, addr)
 	s += ufmt.Sprintf("## 🛡️ Teams (%d)\n\n", teamIDs.Size())
 	if teamIDs.Size() == 0 {
-		s += "Not in any team yet. " + md.Link("Browse the teams", realmLink) + " or create one.\n\n"
+		s += "Not in any team yet. " + md.Link("Browse the teams", v.link) + " or create one.\n\n"
 	} else {
 		page := pagerFor(teamIDs, "page").MustGetPageByPath(req.RawPath)
 		s += "| Team | Role | Members |\n"
 		s += "| --- | --- | ---: |\n"
 		for _, item := range page.Items {
-			t := teams.Get(item.Key).(*team)
-			s += ufmt.Sprintf("| %s | %s | %d |\n", teamLink(t), role(t, addr), t.members.Size())
+			t := v.r.teams.Get(item.Key).(*team)
+			s += ufmt.Sprintf("| %s | %s | %d |\n", v.teamLink(t), role(t, addr), t.members.Size())
 		}
 		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
 
-	inviteIDs := indexTree(&invited, addr)
+	inviteIDs := indexTree(&v.r.invited, addr)
 	if inviteIDs.Size() > 0 {
 		page := pagerFor(inviteIDs, "invites").MustGetPageByPath(req.RawPath)
 		s += "---\n\n"
@@ -178,9 +183,9 @@ func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
 		s += "| Team | | |\n"
 		s += "| --- | --- | --- |\n"
 		for _, item := range page.Items {
-			t := teams.Get(item.Key).(*team)
+			t := v.r.teams.Get(item.Key).(*team)
 			ids := idText(t.id)
-			s += ufmt.Sprintf("| %s | %s | %s |\n", teamLink(t),
+			s += ufmt.Sprintf("| %s | %s | %s |\n", v.teamLink(t),
 				md.Link("✅ Accept", txlink.Call("Join", "id", ids)),
 				md.Link("❌ Decline", txlink.Call("CancelInvite", "id", ids, "player", addr.String())))
 		}
@@ -189,12 +194,12 @@ func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
 	res.Write(s)
 }
 
-func nav() string {
-	return md.Link("⬅️ All teams", realmLink) + "\n\n"
+func (v *view) nav() string {
+	return md.Link("⬅️ All teams", v.link) + "\n\n"
 }
 
-func notFound(msg string) string {
-	return nav() + "# 🤷 " + msg + "\n"
+func (v *view) notFound(msg string) string {
+	return v.nav() + "# 🤷 " + msg + "\n"
 }
 
 func stat(n int, label string) string {
@@ -231,20 +236,24 @@ func openToggleLabel(t *team) string {
 	return "🔓 Open it to everyone"
 }
 
-func teamLink(t *team) string {
-	return chip(t.id) + " " + md.Link(t.name, realmLink+":team/"+idText(t.id))
+func (v *view) teamLink(t *team) string {
+	return chip(t.id) + " " + md.Link(t.name, v.link+":team/"+idText(t.id))
 }
 
-// playerLink shows the registered username when there is one.
-func playerLink(addr address) string {
+// playerLink shows the name nameOf gives, or a short address.
+func (v *view) playerLink(addr address) string {
 	s := addr.String()
-	name := s
-	if u := users.ResolveAddress(addr); u != nil {
-		name = "@" + u.Name()
-	} else if len(s) > 13 {
-		name = s[:7] + "…" + s[len(s)-4:]
+	name := ""
+	if v.nameOf != nil {
+		name = v.nameOf(addr)
 	}
-	return md.Link(name, realmLink+":player/"+s)
+	if name == "" {
+		name = s
+		if len(s) > 13 {
+			name = s[:7] + "…" + s[len(s)-4:]
+		}
+	}
+	return md.Link(name, v.link+":player/"+s)
 }
 
 func chip(id seqid.ID) string {

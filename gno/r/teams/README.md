@@ -1,21 +1,10 @@
 # `teams` - Player teams any game can read
 
 Players form teams here, and a game realm reads who is in which team instead
-of keeping its own roster.
-
-## Joining
-
-A team's owner picks how players get in, and all three ways work at once:
-
-- **Open**: anyone calls `Join`.
-- **Invite**: the owner calls `Invite`, then the player calls `Join`. Either
-  side can withdraw it with `CancelInvite`.
-- **Direct**: the owner calls `AddMember`, with no step from the player.
-
-`SetOpen` switches a team between open and invite only. While others remain,
-the owner stays until `TransferOwnership` hands the team to another member. The
-last member to `Leave` deletes the team: its name is free again, its pending
-invites are withdrawn, and `Exists` reads false for its id.
+of keeping its own roster. The rules for joining, leaving and handing a team
+over are those of the registry it holds,
+[`gno.land/p/samcrew/teams/v0`](../../p/teams/v0), and a game that wants teams
+of its own holds one of those instead.
 
 ## Usage in a game
 
@@ -36,7 +25,8 @@ None of them take a `realm` argument, so a game calls them without `cross`.
 `Name`, `Owner` and `Members` abort on an id with no team, a deleted one
 included, so a game holding an old id checks `Exists` first. The slices
 `Members` and `TeamsOf` return belong to this realm: copy one before sorting or
-writing into it.
+writing into it. A game calling a function that changes a team acts as itself,
+never as its player.
 
 ## Pages
 
@@ -44,4 +34,5 @@ writing into it.
 - `/r/samcrew/teams:team/<id>`: one team, its members, pending invites and the
   owner's actions.
 - `/r/samcrew/teams:player/<address>`: a player's teams and invites, with
-  accept and decline links.
+  accept and decline links. A registered username shows in place of the
+  address.

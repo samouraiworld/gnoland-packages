@@ -1,123 +1,95 @@
+// Package teams is the shared team registry on gno.land: any player forms a
+// team here and any game reads it. A game that wants teams of its own holds a
+// gno.land/p/samcrew/teams/v0 Registry instead.
 package teams
 
 import (
-	"strings"
-	"time"
-
-	"gno.land/p/nt/avl/v0"
+	pteams "gno.land/p/samcrew/teams/v0"
+	"gno.land/r/sys/users"
 )
+
+// registry stays unexported: its methods trust the caller they are given, so a
+// realm holding it could act as anyone.
+var registry = pteams.NewRegistry()
 
 // CreateTeam creates a team owned by the caller, who becomes its first member.
 // An open team lets anyone join; otherwise players need an invite or the owner.
 func CreateTeam(cur realm, name, description string, open bool) uint64 {
-	caller := cur.Previous().Address()
-	validateName(name)
-	validateDescription(description)
-	key := strings.ToLower(name)
-	if names.Has(key) {
-		panic("team name already taken")
-	}
-
-	id := lastID.Next()
-	t := &team{
-		id:          id,
-		name:        name,
-		description: description,
-		owner:       caller,
-		open:        open,
-		createdAt:   time.Now(),
-		members:     avl.NewTree(),
-		invites:     avl.NewTree(),
-	}
-	teams.Set(id.String(), t)
-	names.Set(key, true)
-	addMember(t, caller)
-	return uint64(id)
+	return registry.Create(cur.Previous().Address(), name, description, open)
 }
 
 // SetDescription replaces the team's description. Owner only.
 func SetDescription(cur realm, id uint64, description string) {
-	t := mustOwn(cur, id)
-	validateDescription(description)
-	t.description = description
+	registry.SetDescription(cur.Previous().Address(), id, description)
 }
 
 // SetOpen lets anyone join the team when open is true. Owner only.
 func SetOpen(cur realm, id uint64, open bool) {
-	mustOwn(cur, id).open = open
+	registry.SetOpen(cur.Previous().Address(), id, open)
 }
 
 // Join adds the caller to an open team, or to any team that invited them.
 func Join(cur realm, id uint64) {
-	caller := cur.Previous().Address()
-	t := mustGet(id)
-	if !t.open && !t.invites.Has(caller.String()) {
-		panic("this team is invite only")
-	}
-	addMember(t, caller)
+	registry.Join(cur.Previous().Address(), id)
 }
 
 // Invite lets player call Join while the team is invite only. Owner only.
 func Invite(cur realm, id uint64, player address) {
-	t := mustOwn(cur, id)
-	mustValidAddress(player)
-	if t.members.Has(player.String()) {
-		panic("already a member")
-	}
-	setInvite(t, player)
+	registry.Invite(cur.Previous().Address(), id, player)
 }
 
 // CancelInvite withdraws an invite. The owner or the invited player may call it.
 func CancelInvite(cur realm, id uint64, player address) {
-	caller := cur.Previous().Address()
-	t := mustGet(id)
-	if caller != t.owner && caller != player {
-		panic("only the owner or the invited player can cancel an invite")
-	}
-	if !dropInvite(t, player) {
-		panic("no invite for this player")
-	}
+	registry.CancelInvite(cur.Previous().Address(), id, player)
 }
 
 // AddMember puts player in the team without asking them. Owner only.
 func AddMember(cur realm, id uint64, player address) {
-	t := mustOwn(cur, id)
-	mustValidAddress(player)
-	addMember(t, player)
+	registry.AddMember(cur.Previous().Address(), id, player)
 }
 
 // RemoveMember takes player out of the team. Owner only.
 func RemoveMember(cur realm, id uint64, player address) {
-	removeMember(mustOwn(cur, id), player)
+	registry.RemoveMember(cur.Previous().Address(), id, player)
 }
 
 // Leave takes the caller out of the team. The owner can leave only as the last
 // member, which deletes the team and frees its name.
 func Leave(cur realm, id uint64) {
-	removeMember(mustGet(id), cur.Previous().Address())
+	registry.Leave(cur.Previous().Address(), id)
 }
 
 // TransferOwnership hands the team to another member. Owner only.
 func TransferOwnership(cur realm, id uint64, newOwner address) {
-	t := mustOwn(cur, id)
-	if !t.members.Has(newOwner.String()) {
-		panic("the new owner must be a member")
-	}
-	t.owner = newOwner
+	registry.TransferOwnership(cur.Previous().Address(), id, newOwner)
 }
 
-// mustValidAddress refuses every spelling but the one a signer produces: upper
-// case and a bech32m checksum decode too, yet no caller matches the key.
-func mustValidAddress(addr address) {
-	if c, ok := canonical(addr); !ok || !addr.IsValid() || c != addr {
-		panic("invalid address")
-	}
+// Exists reports whether a team with this id exists; a deleted team does not.
+func Exists(id uint64) bool { return registry.Exists(id) }
+
+// Name returns the team's display name.
+func Name(id uint64) string { return registry.Name(id) }
+
+// Owner returns the address allowed to manage the team.
+func Owner(id uint64) address { return registry.Owner(id) }
+
+// IsMember reports whether addr belongs to the team, false for an unknown team.
+func IsMember(id uint64, addr address) bool { return registry.IsMember(id, addr) }
+
+// Members returns the team's members in address order.
+func Members(id uint64) []address { return registry.Members(id) }
+
+// TeamsOf returns the ids of every team addr belongs to, oldest first.
+func TeamsOf(addr address) []uint64 { return registry.TeamsOf(addr) }
+
+func Render(path string) string {
+	return registry.Render(path, username)
 }
 
-func mustOwn(cur realm, id uint64) *team {
-	t := mustGet(id)
-	if cur.Previous().Address() != t.owner {
-		panic("only the team owner can do this")
+// username returns the name addr registered in r/sys/users, "" without one.
+func username(addr address) string {
+	if u := users.ResolveAddress(addr); u != nil {
+		return "@" + u.Name()
 	}
-	return t
+	return ""
 }
