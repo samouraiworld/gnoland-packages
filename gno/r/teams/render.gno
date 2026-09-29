@@ -2,7 +2,6 @@ package teams
 
 import (
 	"strconv"
-	"strings"
 	"time"
 
 	"gno.land/p/moul/md/v0"
@@ -147,7 +146,7 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 }
 
 func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
-	addr := address(strings.ToLower(req.GetVar("address")))
+	addr := normalize(address(req.GetVar("address")))
 	if !addr.IsValid() {
 		res.Write(notFound("Not a valid address"))
 		return
@@ -207,6 +206,7 @@ func stat(n int, label string) string {
 func pagerFor(tree *avl.Tree, param string) *pager.Pager {
 	p := pager.NewPager(tree, pageSize, false)
 	p.PageQueryParam = param
+	p.SizeQueryParam = "" // a link cannot raise the page size
 	return p
 }
 

@@ -2,6 +2,7 @@
 package teams
 
 import (
+	"crypto/bech32"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func Owner(id uint64) address {
 // IsMember reports whether addr belongs to the team, false for an unknown team.
 func IsMember(id uint64, addr address) bool {
 	t := lookup(id)
-	return t != nil && t.members.Has(addr.String())
+	return t != nil && t.members.Has(normalize(addr).String())
 }
 
 // Members returns the team's members in address order.
@@ -68,7 +69,28 @@ func Members(id uint64) []address {
 
 // TeamsOf returns the ids of every team addr belongs to, oldest first.
 func TeamsOf(addr address) []uint64 {
-	return indexIDs(&players, addr)
+	return indexIDs(&players, normalize(addr))
+}
+
+// canonical returns the spelling of addr a signer produces, and false when addr
+// does not decode.
+func canonical(addr address) (address, bool) {
+	hrp, data, err := bech32.DecodeToBase256(addr.String())
+	if err != nil {
+		return addr, false
+	}
+	s, err := bech32.EncodeFromBase256(hrp, data)
+	if err != nil {
+		return addr, false
+	}
+	return address(s), true
+}
+
+// normalize maps any spelling of an address to the one its members are stored
+// under, and leaves an undecodable one as it is.
+func normalize(addr address) address {
+	c, _ := canonical(addr)
+	return c
 }
 
 // lookup returns the team, or nil when no team has this id.

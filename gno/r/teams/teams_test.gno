@@ -1,6 +1,7 @@
 package teams
 
 import (
+	"crypto/bech32"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,16 +39,22 @@ func TestCreateTeam(cur realm, t *testing.T) {
 			CreateTeam(cross(cur), name, "", false)
 		}, name)
 	}
-	upper := address(strings.ToUpper(carol.String()))
-	uassert.True(t, upper.IsValid())
-	urequire.AbortsWithMessage(t, cur, "invalid address", func(cur realm) {
-		testing.SetRealm(testing.NewUserRealm(alice))
-		AddMember(cross(cur), id, upper)
-	})
-	urequire.AbortsWithMessage(t, cur, "invalid address", func(cur realm) {
-		testing.SetRealm(testing.NewUserRealm(alice))
-		Invite(cross(cur), id, upper)
-	})
+	// Other spellings of carol's address decode, yet no signer produces them.
+	for _, other := range []address{address(strings.ToUpper(carol.String())), bech32m(carol)} {
+		uassert.True(t, other.IsValid())
+		urequire.AbortsWithMessage(t, cur, "invalid address", func(cur realm) {
+			testing.SetRealm(testing.NewUserRealm(alice))
+			AddMember(cross(cur), id, other)
+		})
+		urequire.AbortsWithMessage(t, cur, "invalid address", func(cur realm) {
+			testing.SetRealm(testing.NewUserRealm(alice))
+			Invite(cross(cur), id, other)
+		})
+		// Reads map every spelling to the member it names.
+		uassert.True(t, IsMember(id, address(strings.ToUpper(alice.String()))))
+		uassert.True(t, IsMember(id, bech32m(alice)))
+		uassert.True(t, containsID(TeamsOf(bech32m(alice)), id))
+	}
 	urequire.AbortsWithMessage(t, cur, "team description must fit on one line", func(cur realm) {
 		testing.SetRealm(testing.NewUserRealm(bob))
 		CreateTeam(cross(cur), "Blue Owls", "line\nbreak", false)
@@ -229,11 +236,31 @@ func TestRenderPaging(cur realm, t *testing.T) {
 	player := Render("player/" + carlo.String())
 	uassert.True(t, strings.Contains(player, "?page=2"), player)
 	uassert.Equal(t, pageSize, strings.Count(player, "🧑 Member"))
+	// A link cannot raise the page size.
+	big := Render("player/" + carlo.String() + "?size=100")
+	uassert.Equal(t, pageSize, strings.Count(big, "🧑 Member"))
 
 	// The invites picker keeps the page the teams table is on.
 	invites := Render("player/" + bob.String() + "?page=3&invites=2")
 	uassert.True(t, strings.Contains(invites, "?invites=1&page=3"), invites)
 	uassert.Equal(t, indexTree(&invited, bob).Size()-pageSize, strings.Count(invites, "✅ Accept"), invites)
+}
+
+// bech32m spells addr with the bech32m checksum instead of bech32.
+func bech32m(addr address) address {
+	hrp, data, err := bech32.DecodeToBase256(addr.String())
+	if err != nil {
+		panic(err)
+	}
+	five, err := bech32.ConvertBits(data, 8, 5, true)
+	if err != nil {
+		panic(err)
+	}
+	s, err := bech32.EncodeM(hrp, five)
+	if err != nil {
+		panic(err)
+	}
+	return address(s)
 }
 
 func containsID(ids []uint64, id uint64) bool {

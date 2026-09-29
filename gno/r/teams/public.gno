@@ -106,10 +106,10 @@ func TransferOwnership(cur realm, id uint64, newOwner address) {
 	t.owner = newOwner
 }
 
-// mustValidAddress refuses the upper-case spelling of an address too: it
-// decodes, but no caller ever matches the key it would be stored under.
+// mustValidAddress refuses every spelling but the one a signer produces: upper
+// case and a bech32m checksum decode too, yet no caller matches the key.
 func mustValidAddress(addr address) {
-	if !addr.IsValid() || addr.String() != strings.ToLower(addr.String()) {
+	if c, ok := canonical(addr); !ok || !addr.IsValid() || c != addr {
 		panic("invalid address")
 	}
 }
