@@ -37,7 +37,7 @@ type team struct {
 type Registry struct {
 	lastID  seqid.ID
 	teams   avl.Tree // seqid string -> *team
-	names   avl.Tree // lowercased name -> true
+	names   avl.Tree // lowercased name -> seqid string, for search
 	players avl.Tree // address -> *avl.Tree of seqid string -> true
 	invited avl.Tree // address -> *avl.Tree of seqid string -> true
 }
@@ -106,7 +106,7 @@ func (r *Registry) Create(caller address, name, description string, open bool) u
 		invites:     avl.NewTree(),
 	}
 	r.teams.Set(id.String(), t)
-	r.names.Set(key, true)
+	r.names.Set(key, id.String())
 	r.addMember(t, caller)
 	return uint64(id)
 }

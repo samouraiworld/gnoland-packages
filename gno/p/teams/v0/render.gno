@@ -11,6 +11,7 @@ import (
 	"gno.land/p/moul/txlink/v0"
 	"gno.land/p/nt/avl/pager/v0"
 	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/markdown/sanitize/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -38,6 +39,7 @@ func (r *Registry) Render(path string, nameOf func(address) string) string {
 	v := &view{r: r, pkg: pkg, link: strings.TrimPrefix(pkg, runtime.ChainDomain()), nameOf: nameOf}
 	router := mux.NewRouter()
 	router.HandleFunc("", v.home)
+	router.HandleFunc("search", v.search)
 	router.HandleFunc("team/{id}", v.team)
 	router.HandleFunc("player/{address}", v.player)
 	return router.Render(path)
@@ -52,25 +54,16 @@ func (v *view) home(res *mux.ResponseWriter, req *mux.Request) {
 		md.Bold(md.Link("➕ Create a team", txlink.Call("CreateTeam"))) + "\n\nPick a name, open it to all or keep it invite only.",
 	}, false)
 	s += "\n> 🔎 Your teams and invites are at `" + v.link + ":player/<your address>`\n\n"
+	s += searchForm("") + "\n"
 	s += "---\n\n"
 
-	s += ufmt.Sprintf("## 🛡️ All teams (%d)\n\n", v.r.teams.Size())
+	s += ufmt.Sprintf("## 🛡️ Latest teams (%d)\n\n", v.r.teams.Size())
 	if v.r.teams.Size() == 0 {
 		s += "No team yet. Create the first one!\n\n"
 	} else {
-		page := pagerFor(&v.r.teams, "page").MustGetPageByPath(req.RawPath)
-		s += "| Team | Owner | Members | Joining | |\n"
-		s += "| --- | --- | ---: | --- | --- |\n"
-		for _, item := range page.Items {
-			t := item.Value.(*team)
-			join := ""
-			if t.open {
-				join = md.Link("🙋 Join", txlink.Call("Join", "id", idText(t.id)))
-			}
-			s += ufmt.Sprintf("| %s | %s | %d | %s | %s |\n",
-				v.teamLink(t), v.playerLink(t.owner), t.members.Size(), joining(t), join)
-		}
-		s += "\n" + page.Picker(req.RawPath) + "\n\n"
+		p := pagerFor(&v.r.teams, "page")
+		p.Reversed = true // ids grow with each team, so this lists the newest first
+		s += v.teamTable(p.MustGetPageByPath(req.RawPath), req.RawPath)
 	}
 	s += "---\n\n"
 
@@ -82,6 +75,86 @@ if !teams.IsMember(teamID, player) {
 	panic("join the team first")
 }`) + "\n"
 	res.Write(s)
+}
+
+// search lists the teams whose name starts with the query, ignoring case,
+// in name order.
+func (v *view) search(res *mux.ResponseWriter, req *mux.Request) {
+	q := strings.ToLower(strings.TrimSpace(req.Query.Get("q")))
+	if len(q) > maxNameLen {
+		q = q[:maxNameLen]
+	}
+	s := v.nav() + "# 🔎 Search teams\n\n" + searchForm(q) + "\n"
+	if q == "" {
+		res.Write(s + "Type the start of a team's name.\n")
+		return
+	}
+
+	// Names starting with q are one run of the sorted name index, so its bounds
+	// cost two lookups however many teams exist.
+	first := lowerBound(&v.r.names, q)
+	total := lowerBound(&v.r.names, q+"\xff") - first
+	s += ufmt.Sprintf("## Teams starting with “%s” (%d)\n\n", md.EscapeText(q), total)
+	if total == 0 {
+		res.Write(s + "No team found.\n")
+		return
+	}
+
+	p := pagerFor(&v.r.names, "page")
+	number, _, _ := p.ParseQuery(req.RawPath)
+	page := &pager.Page{PageNumber: number, PageSize: pageSize, TotalItems: total, Pager: p}
+	page.TotalPages = (total + pageSize - 1) / pageSize
+	page.HasPrev = number > 1
+	page.HasNext = number < page.TotalPages
+	skip := (number - 1) * pageSize
+	if skip < total {
+		count := total - skip
+		if count > pageSize {
+			count = pageSize
+		}
+		v.r.names.IterateByOffset(first+skip, count, func(_ string, id any) bool {
+			page.Items = append(page.Items, pager.Item{Value: v.r.teams.Get(id.(string))})
+			return false
+		})
+	}
+	res.Write(s + v.teamTable(page, req.RawPath))
+}
+
+// teamTable lists a page of teams with a join link on the open ones.
+func (v *view) teamTable(page *pager.Page, rawPath string) string {
+	s := "| Team | Owner | Members | Joining | |\n"
+	s += "| --- | --- | ---: | --- | --- |\n"
+	for _, item := range page.Items {
+		t := item.Value.(*team)
+		join := ""
+		if t.open {
+			join = md.Link("🙋 Join", txlink.Call("Join", "id", idText(t.id)))
+		}
+		s += ufmt.Sprintf("| %s | %s | %d | %s | %s |\n",
+			v.teamLink(t), v.playerLink(t.owner), t.members.Size(), joining(t), join)
+	}
+	return s + "\n" + page.Picker(rawPath) + "\n\n"
+}
+
+// searchForm is a box whose submit reloads the page at search?q=<text>.
+func searchForm(q string) string {
+	return "<gno-form path=\"search\">\n" +
+		"<gno-input name=\"q\" placeholder=\"Search a team by name\" value=\"" + sanitize.HTMLEscape(q) + "\" />\n" +
+		"</gno-form>\n"
+}
+
+// lowerBound returns how many keys of tree sort before key.
+func lowerBound(tree *avl.Tree, key string) int {
+	lo, hi := 0, tree.Size()
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if k, _ := tree.GetByIndex(mid); k < key {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
 }
 
 func (v *view) team(res *mux.ResponseWriter, req *mux.Request) {

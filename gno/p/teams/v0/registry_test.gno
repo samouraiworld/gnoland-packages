@@ -224,6 +224,45 @@ func TestRenderPaging(cur realm, t *testing.T) {
 	uassert.Equal(t, 1, strings.Count(invites, "✅ Accept"), invites)
 }
 
+func TestHomeListsNewestFirst(cur realm, t *testing.T) {
+	r := NewRegistry()
+	r.Create(alice, "Oldest Crew", "", true)
+	r.Create(alice, "Newest Crew", "", true)
+
+	home := r.Render("", nil)
+	uassert.True(t, strings.Index(home, "Newest Crew") < strings.Index(home, "Oldest Crew"), home)
+}
+
+func TestSearch(cur realm, t *testing.T) {
+	r := NewRegistry()
+	for i := 0; i < pageSize+1; i++ {
+		r.Create(alice, "Wolf Pack "+strconv.Itoa(100+i), "", true)
+	}
+	r.Create(alice, "Red Foxes", "", true)
+
+	// A prefix matches whatever the case, and nothing outside the prefix.
+	first := r.Render("search?q=WOLF", nil)
+	uassert.True(t, strings.Contains(first, "(21)"), first)
+	uassert.Equal(t, pageSize, strings.Count(first, "Wolf Pack "), first)
+	uassert.False(t, strings.Contains(first, "Red Foxes"), first)
+	uassert.True(t, strings.Contains(first, "?page=2&q=WOLF"), first)
+
+	second := r.Render("search?q=wolf&page=2", nil)
+	uassert.Equal(t, 1, strings.Count(second, "Wolf Pack "), second)
+	uassert.True(t, strings.Contains(second, "Wolf Pack 120"), second)
+
+	uassert.True(t, strings.Contains(r.Render("search?q=red", nil), "Red Foxes"))
+	uassert.True(t, strings.Contains(r.Render("search?q=zebra", nil), "No team found."))
+	uassert.True(t, strings.Contains(r.Render("search", nil), "Type the start"))
+	uassert.True(t, strings.Contains(r.Render("search?q=wolf&page=9", nil), "(21)"))
+
+	// What the viewer typed is shown back escaped, in the heading and the box.
+	odd := r.Render(`search?q="><img src=x>`, nil)
+	uassert.True(t, strings.Contains(odd, `\<img`), odd)
+	uassert.True(t, strings.Contains(odd, `value="&#34;&gt;&lt;img`), odd)
+	uassert.Equal(t, 0, strings.Count(odd, `"><img`)+strings.Count(odd, " <img"), odd)
+}
+
 // bech32m spells addr with the bech32m checksum instead of bech32.
 func bech32m(addr address) address {
 	hrp, data, err := bech32.DecodeToBase256(addr.String())

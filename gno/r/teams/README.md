@@ -30,7 +30,10 @@ never as its player.
 
 ## Pages
 
-- `/r/samcrew/teams`: every team, with a join link on the open ones.
+- `/r/samcrew/teams`: the newest teams first, a join link on the open ones,
+  and a search box.
+- `/r/samcrew/teams:search?q=<text>`: the teams whose name starts with the
+  text, in any case.
 - `/r/samcrew/teams:team/<id>`: one team, its members, pending invites and the
   owner's actions.
 - `/r/samcrew/teams:player/<address>`: a player's teams and invites, with

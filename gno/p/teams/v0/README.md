@@ -41,7 +41,9 @@ Every method that changes a team takes the address acting and trusts it. Pass
 holding it could act as anyone. A game's own rules, a size cap or a ban list,
 go in its functions before the call.
 
-`Render` serves three pages: every team, `team/<id>` and `player/<address>`.
+`Render` serves four pages: the newest teams first with a search box,
+`search?q=<text>` for the teams whose name starts with the text in any case,
+`team/<id>` and `player/<address>`. Every table shows 20 rows a page.
 Their buttons link to the calling realm's functions by name, so a realm serving
 them exposes `CreateTeam(name, description, open)`, `Join(id)`, `Leave(id)`,
 `Invite(id, player)`, `CancelInvite(id, player)`, `AddMember(id, player)`,
