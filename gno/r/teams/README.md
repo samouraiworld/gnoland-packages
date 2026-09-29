@@ -33,7 +33,8 @@ never as its player.
 - `/r/samcrew/teams`: the newest teams first, a join link on the open ones,
   and a search box.
 - `/r/samcrew/teams:search?q=<text>`: the teams whose name starts with the
-  text, in any case.
+  text, in any case, or the team with that id, `12` or `#12`. Every team shows
+  its id beside its name.
 - `/r/samcrew/teams:team/<id>`: one team, its members, pending invites and the
   owner's actions.
 - `/r/samcrew/teams:player/<address>`: a player's teams and invites, with

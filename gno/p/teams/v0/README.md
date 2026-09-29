@@ -43,7 +43,8 @@ go in its functions before the call.
 
 `Render` serves four pages: the newest teams first with a search box,
 `search?q=<text>` for the teams whose name starts with the text in any case,
-`team/<id>` and `player/<address>`. Every table shows 20 rows a page.
+or the team with that id when the text is a number, `team/<id>` and
+`player/<address>`. Every team shows its id, and every table 20 rows a page.
 Their buttons link to the calling realm's functions by name, so a realm serving
 them exposes `CreateTeam(name, description, open)`, `Join(id)`, `Leave(id)`,
 `Invite(id, player)`, `CancelInvite(id, player)`, `AddMember(id, player)`,

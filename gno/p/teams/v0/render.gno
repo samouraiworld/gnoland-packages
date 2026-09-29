@@ -86,14 +86,27 @@ func (v *view) search(res *mux.ResponseWriter, req *mux.Request) {
 	}
 	s := v.nav() + "# 🔎 Search teams\n\n" + searchForm(q) + "\n"
 	if q == "" {
-		res.Write(s + "Type the start of a team's name.\n")
+		res.Write(s + "Type the start of a team's name, or its id.\n")
 		return
+	}
+
+	// A number, with or without its #, also finds the team with that id.
+	byID := false
+	if id, err := strconv.ParseUint(strings.TrimPrefix(q, "#"), 10, 64); err == nil {
+		if t := v.r.lookup(id); t != nil {
+			s += "## Team " + teamID(t) + "\n\n" + v.teamLink(t) + "\n\n"
+			byID = true
+		}
 	}
 
 	// Names starting with q are one run of the sorted name index, so its bounds
 	// cost two lookups however many teams exist.
 	first := lowerBound(&v.r.names, q)
 	total := lowerBound(&v.r.names, q+"\xff") - first
+	if total == 0 && byID {
+		res.Write(s)
+		return
+	}
 	s += ufmt.Sprintf("## Teams starting with “%s” (%d)\n\n", md.EscapeText(q), total)
 	if total == 0 {
 		res.Write(s + "No team found.\n")
@@ -139,7 +152,7 @@ func (v *view) teamTable(page *pager.Page, rawPath string) string {
 // searchForm is a box whose submit reloads the page at search?q=<text>.
 func searchForm(q string) string {
 	return "<gno-form path=\"search\">\n" +
-		"<gno-input name=\"q\" placeholder=\"Search a team by name\" value=\"" + sanitize.HTMLEscape(q) + "\" />\n" +
+		"<gno-input name=\"q\" placeholder=\"Search a team by name or #id\" value=\"" + sanitize.HTMLEscape(q) + "\" />\n" +
 		"</gno-form>\n"
 }
 
@@ -173,7 +186,7 @@ func (v *view) team(res *mux.ResponseWriter, req *mux.Request) {
 	} else {
 		s += md.Blockquote(md.EscapeText(t.description)) + "\n"
 	}
-	s += "📅 Created " + date(t.createdAt) + "\n\n"
+	s += "🆔 Team " + teamID(t) + " · 📅 Created " + date(t.createdAt) + "\n\n"
 	s += md.Columns([]string{
 		"**👑 Owner**\n\n" + v.playerLink(t.owner),
 		"**👥 Members**\n\n" + strconv.Itoa(t.members.Size()),
@@ -310,7 +323,7 @@ func openToggleLabel(t *team) string {
 }
 
 func (v *view) teamLink(t *team) string {
-	return chip(t.id) + " " + md.Link(t.name, v.link+":team/"+idText(t.id))
+	return chip(t.id) + " " + md.Link(t.name, v.link+":team/"+idText(t.id)) + " " + teamID(t)
 }
 
 // playerLink shows the name nameOf gives, or a short address.
@@ -327,6 +340,11 @@ func (v *view) playerLink(addr address) string {
 		}
 	}
 	return md.Link(name, v.link+":player/"+s)
+}
+
+// teamID is the number a player searches for and a game passes to IsMember.
+func teamID(t *team) string {
+	return md.InlineCode("#" + idText(t.id))
 }
 
 func chip(id seqid.ID) string {

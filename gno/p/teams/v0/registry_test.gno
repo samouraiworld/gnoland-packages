@@ -256,6 +256,16 @@ func TestSearch(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(r.Render("search", nil), "Type the start"))
 	uassert.True(t, strings.Contains(r.Render("search?q=wolf&page=9", nil), "(21)"))
 
+	// An id finds its team, with or without the #, beside the name matches.
+	byID := r.Render("search?q=%2322", nil)
+	uassert.True(t, strings.Contains(byID, "## Team `#22`"), byID)
+	uassert.True(t, strings.Contains(byID, "[Red Foxes]("), byID)
+	uassert.False(t, strings.Contains(byID, "No team found."), byID)
+	uassert.True(t, strings.Contains(r.Render("search?q=22", nil), "## Team `#22`"))
+	uassert.False(t, strings.Contains(r.Render("search?q=999", nil), "## Team `#"))
+	// Every team link carries its id.
+	uassert.True(t, strings.Contains(first, "[Wolf Pack 100](") && strings.Contains(first, "`#1`"), first)
+
 	// What the viewer typed is shown back escaped, in the heading and the box.
 	odd := r.Render(`search?q="><img src=x>`, nil)
 	uassert.True(t, strings.Contains(odd, `\<img`), odd)
