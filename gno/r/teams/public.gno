@@ -30,7 +30,7 @@ func CreateTeam(cur realm, name, description string, open bool) uint64 {
 		invites:     avl.NewTree(),
 	}
 	teams.Set(id.String(), t)
-	names.Set(key, id.String())
+	names.Set(key, true)
 	addMember(t, caller)
 	return uint64(id)
 }
@@ -51,9 +51,6 @@ func SetOpen(cur realm, id uint64, open bool) {
 func Join(cur realm, id uint64) {
 	caller := cur.Previous().Address()
 	t := mustGet(id)
-	if t.members.Has(caller.String()) {
-		panic("already a member")
-	}
 	if !t.open && !t.invites.Has(caller.String()) {
 		panic("this team is invite only")
 	}
@@ -90,35 +87,17 @@ func AddMember(cur realm, id uint64, player address) {
 	if !player.IsValid() {
 		panic("invalid address")
 	}
-	if t.members.Has(player.String()) {
-		panic("already a member")
-	}
 	addMember(t, player)
 }
 
 // RemoveMember takes player out of the team. Owner only, and not themself.
 func RemoveMember(cur realm, id uint64, player address) {
-	t := mustOwn(cur, id)
-	if player == t.owner {
-		panic("the owner cannot be removed, transfer ownership first")
-	}
-	if !t.members.Has(player.String()) {
-		panic("not a member")
-	}
-	removeMember(t, player)
+	removeMember(mustOwn(cur, id), player)
 }
 
 // Leave takes the caller out of the team. The owner transfers ownership first.
 func Leave(cur realm, id uint64) {
-	caller := cur.Previous().Address()
-	t := mustGet(id)
-	if caller == t.owner {
-		panic("the owner cannot leave, transfer ownership first")
-	}
-	if !t.members.Has(caller.String()) {
-		panic("not a member")
-	}
-	removeMember(t, caller)
+	removeMember(mustGet(id), cur.Previous().Address())
 }
 
 // TransferOwnership hands the team to another member. Owner only.

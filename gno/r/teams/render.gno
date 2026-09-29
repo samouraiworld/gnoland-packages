@@ -7,6 +7,7 @@ import (
 	"gno.land/p/moul/md/v0"
 	"gno.land/p/moul/txlink/v0"
 	"gno.land/p/nt/avl/pager/v0"
+	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -49,7 +50,7 @@ func renderHome(res *mux.ResponseWriter, req *mux.Request) {
 	if teams.Size() == 0 {
 		s += "No team yet. Create the first one!\n\n"
 	} else {
-		page := pager.NewPager(&teams, pageSize, false).MustGetPageByPath(req.RawPath)
+		page := pagerFor(&teams, "page").MustGetPageByPath(req.RawPath)
 		s += "| Team | Owner | Members | Joining | |\n"
 		s += "| --- | --- | ---: | --- | --- |\n"
 		for _, item := range page.Items {
@@ -80,11 +81,11 @@ for _, id := range teams.TeamsOf(player) {
 
 func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 	id, err := strconv.ParseUint(req.GetVar("id"), 10, 64)
-	if err != nil || !Exists(id) {
+	t := lookup(id)
+	if err != nil || t == nil {
 		res.Write(notFound("Team not found"))
 		return
 	}
-	t := mustGet(id)
 	ids := idText(t.id)
 
 	s := nav()
@@ -103,11 +104,11 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 	s += "\n---\n\n"
 
 	s += "## ⚡ Actions\n\n"
+	who := ", once the owner invited you"
 	if t.open {
-		s += "- " + md.Link("🙋 Join this team", txlink.Call("Join", "id", ids)) + ", open to everyone\n"
-	} else {
-		s += "- " + md.Link("🙋 Join this team", txlink.Call("Join", "id", ids)) + ", once the owner invited you\n"
+		who = ", open to everyone"
 	}
+	s += "- " + md.Link("🙋 Join this team", txlink.Call("Join", "id", ids)) + who + "\n"
 	s += "- " + md.Link("🚪 Leave the team", txlink.Call("Leave", "id", ids)) + "\n\n"
 	s += "### 👑 Owner tools\n\n" + md.BulletList([]string{
 		md.Link("✉️ Invite a player", txlink.Call("Invite", "id", ids)),
@@ -120,16 +121,12 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 	s += "---\n\n"
 
 	s += ufmt.Sprintf("## 👥 Members (%d)\n\n", t.members.Size())
-	page := pager.NewPager(t.members, pageSize, false).MustGetPageByPath(req.RawPath)
+	page := pagerFor(t.members, "page").MustGetPageByPath(req.RawPath)
 	s += "| Player | Role | Joined |\n"
 	s += "| --- | --- | --- |\n"
 	for _, item := range page.Items {
 		addr := address(item.Key)
-		role := "🧑 Member"
-		if addr == t.owner {
-			role = "👑 Owner"
-		}
-		s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(addr), role, date(item.Value.(time.Time)))
+		s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(addr), role(t, addr), date(item.Value.(time.Time)))
 	}
 	s += "\n" + page.Picker(req.Path) + "\n\n"
 
@@ -138,12 +135,12 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 		s += ufmt.Sprintf("## ✉️ Pending invites (%d)\n\n", t.invites.Size())
 		s += "| Player | Invited | |\n"
 		s += "| --- | --- | --- |\n"
-		t.invites.Iterate("", "", func(k string, v any) bool {
-			cancel := md.Link("❌ Cancel", txlink.Call("CancelInvite", "id", ids, "player", k))
-			s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(address(k)), date(v.(time.Time)), cancel)
-			return false
-		})
-		s += "\n"
+		page := pagerFor(t.invites, "invites").MustGetPageByPath(req.RawPath)
+		for _, item := range page.Items {
+			cancel := md.Link("❌ Cancel", txlink.Call("CancelInvite", "id", ids, "player", item.Key))
+			s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(address(item.Key)), date(item.Value.(time.Time)), cancel)
+		}
+		s += "\n" + page.Picker(req.Path) + "\n\n"
 	}
 	res.Write(s)
 }
@@ -158,38 +155,36 @@ func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
 	s := nav()
 	s += "# 🧑 " + playerLink(addr) + "\n\n"
 
-	member := TeamsOf(addr)
-	s += ufmt.Sprintf("## 🛡️ Teams (%d)\n\n", len(member))
-	if len(member) == 0 {
+	teamIDs := indexTree(&players, addr)
+	s += ufmt.Sprintf("## 🛡️ Teams (%d)\n\n", teamIDs.Size())
+	if teamIDs.Size() == 0 {
 		s += "Not in any team yet. " + md.Link("Browse the teams", realmLink) + " or create one.\n\n"
 	} else {
+		page := pagerFor(teamIDs, "page").MustGetPageByPath(req.RawPath)
 		s += "| Team | Role | Members |\n"
 		s += "| --- | --- | ---: |\n"
-		for _, id := range member {
-			t := mustGet(id)
-			role := "🧑 Member"
-			if addr == t.owner {
-				role = "👑 Owner"
-			}
-			s += ufmt.Sprintf("| %s | %s | %d |\n", teamLink(t), role, t.members.Size())
+		for _, item := range page.Items {
+			t := teams.Get(item.Key).(*team)
+			s += ufmt.Sprintf("| %s | %s | %d |\n", teamLink(t), role(t, addr), t.members.Size())
 		}
-		s += "\n"
+		s += "\n" + page.Picker(req.Path) + "\n\n"
 	}
 
-	invites := indexIDs(&invited, addr)
-	if len(invites) > 0 {
+	inviteIDs := indexTree(&invited, addr)
+	if inviteIDs.Size() > 0 {
+		page := pagerFor(inviteIDs, "invites").MustGetPageByPath(req.RawPath)
 		s += "---\n\n"
-		s += ufmt.Sprintf("## ✉️ Invites (%d)\n\n", len(invites))
+		s += ufmt.Sprintf("## ✉️ Invites (%d)\n\n", inviteIDs.Size())
 		s += "| Team | | |\n"
 		s += "| --- | --- | --- |\n"
-		for _, id := range invites {
-			t := mustGet(id)
+		for _, item := range page.Items {
+			t := teams.Get(item.Key).(*team)
 			ids := idText(t.id)
 			s += ufmt.Sprintf("| %s | %s | %s |\n", teamLink(t),
 				md.Link("✅ Accept", txlink.Call("Join", "id", ids)),
 				md.Link("❌ Decline", txlink.Call("CancelInvite", "id", ids, "player", addr.String())))
 		}
-		s += "\n"
+		s += "\n" + page.Picker(req.Path) + "\n\n"
 	}
 	res.Write(s)
 }
@@ -204,6 +199,21 @@ func notFound(msg string) string {
 
 func stat(n int, label string) string {
 	return md.Bold(strconv.Itoa(n)) + "\n\n" + label
+}
+
+// pagerFor reads the page number from param, so each table on a page keeps
+// its own page.
+func pagerFor(tree *avl.Tree, param string) *pager.Pager {
+	p := pager.NewPager(tree, pageSize, false)
+	p.PageQueryParam = param
+	return p
+}
+
+func role(t *team, addr address) string {
+	if addr == t.owner {
+		return "👑 Owner"
+	}
+	return "🧑 Member"
 }
 
 func joining(t *team) string {

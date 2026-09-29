@@ -29,14 +29,14 @@ type team struct {
 var (
 	lastID  seqid.ID
 	teams   avl.Tree // seqid string -> *team
-	names   avl.Tree // lowercased name -> seqid string
+	names   avl.Tree // lowercased name -> true
 	players avl.Tree // address -> *avl.Tree of seqid string -> true
 	invited avl.Tree // address -> *avl.Tree of seqid string -> true
 )
 
 // Exists reports whether a team with this id was created.
 func Exists(id uint64) bool {
-	return teams.Has(seqid.ID(id).String())
+	return lookup(id) != nil
 }
 
 // Name returns the team's display name.
@@ -51,8 +51,8 @@ func Owner(id uint64) address {
 
 // IsMember reports whether addr belongs to the team, false for an unknown team.
 func IsMember(id uint64, addr address) bool {
-	v := teams.Get(seqid.ID(id).String())
-	return v != nil && v.(*team).members.Has(addr.String())
+	t := lookup(id)
+	return t != nil && t.members.Has(addr.String())
 }
 
 // Members returns the team's members in address order.
@@ -71,12 +71,21 @@ func TeamsOf(addr address) []uint64 {
 	return indexIDs(&players, addr)
 }
 
-func mustGet(id uint64) *team {
+// lookup returns the team, or nil when no team has this id.
+func lookup(id uint64) *team {
 	v := teams.Get(seqid.ID(id).String())
 	if v == nil {
-		panic("team not found")
+		return nil
 	}
 	return v.(*team)
+}
+
+func mustGet(id uint64) *team {
+	t := lookup(id)
+	if t == nil {
+		panic("team not found")
+	}
+	return t
 }
 
 func mustParseID(s string) seqid.ID {
@@ -88,12 +97,21 @@ func mustParseID(s string) seqid.ID {
 }
 
 func addMember(t *team, addr address) {
+	if t.members.Has(addr.String()) {
+		panic("already a member")
+	}
 	t.members.Set(addr.String(), time.Now())
 	indexAdd(&players, addr, t.id)
 	dropInvite(t, addr)
 }
 
 func removeMember(t *team, addr address) {
+	if addr == t.owner {
+		panic("the owner cannot leave, transfer ownership first")
+	}
+	if !t.members.Has(addr.String()) {
+		panic("not a member")
+	}
 	t.members.Remove(addr.String())
 	indexRemove(&players, addr, t.id)
 }
@@ -105,7 +123,9 @@ func setInvite(t *team, addr address) {
 
 func dropInvite(t *team, addr address) bool {
 	_, removed := t.invites.Remove(addr.String())
-	indexRemove(&invited, addr, t.id)
+	if removed {
+		indexRemove(&invited, addr, t.id)
+	}
 	return removed
 }
 
@@ -131,13 +151,18 @@ func indexRemove(index *avl.Tree, addr address, id seqid.ID) {
 	}
 }
 
-// indexIDs returns the team ids addr is linked to in index, oldest first.
-func indexIDs(index *avl.Tree, addr address) []uint64 {
+// indexTree returns the seqid keys addr is linked to in index, empty if none.
+func indexTree(index *avl.Tree, addr address) *avl.Tree {
 	v := index.Get(addr.String())
 	if v == nil {
-		return nil
+		return avl.NewTree()
 	}
-	ids := v.(*avl.Tree)
+	return v.(*avl.Tree)
+}
+
+// indexIDs returns the team ids addr is linked to in index, oldest first.
+func indexIDs(index *avl.Tree, addr address) []uint64 {
+	ids := indexTree(index, addr)
 	out := make([]uint64, 0, ids.Size())
 	ids.Iterate("", "", func(k string, _ any) bool {
 		out = append(out, uint64(mustParseID(k)))

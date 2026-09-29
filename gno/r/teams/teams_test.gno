@@ -135,7 +135,7 @@ func TestLeaveAndOwnership(cur realm, t *testing.T) {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		Leave(cross(cur), id)
 	})
-	urequire.AbortsWithMessage(t, cur, "the owner cannot be removed, transfer ownership first", func(cur realm) {
+	urequire.AbortsWithMessage(t, cur, "the owner cannot leave, transfer ownership first", func(cur realm) {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		RemoveMember(cross(cur), id, alice)
 	})
@@ -180,6 +180,24 @@ func TestRender(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(Render("team/999"), "Team not found"))
 	uassert.True(t, strings.Contains(Render("team/abc"), "Team not found"))
 	uassert.True(t, strings.Contains(Render("player/nope"), "Not a valid address"))
+}
+
+func TestRenderPaging(cur realm, t *testing.T) {
+	testing.SetRealm(testing.NewUserRealm(alice))
+	carlo := testutils.TestAddress("carlo")
+	for i := 0; i < pageSize+1; i++ {
+		id := CreateTeam(cross(cur), "Paged "+strconv.Itoa(i), "", false)
+		AddMember(cross(cur), id, carlo)
+		Invite(cross(cur), id, bob)
+	}
+
+	player := Render("player/" + carlo.String())
+	uassert.True(t, strings.Contains(player, "?page=2"), player)
+	uassert.Equal(t, pageSize, strings.Count(player, "🧑 Member"))
+
+	invites := Render("player/" + bob.String() + "?invites=2")
+	uassert.True(t, strings.Contains(invites, "?invites=1"), invites)
+	uassert.Equal(t, indexTree(&invited, bob).Size()-pageSize, strings.Count(invites, "✅ Accept"), invites)
 }
 
 func containsID(ids []uint64, id uint64) bool {
