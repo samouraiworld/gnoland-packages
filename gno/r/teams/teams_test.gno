@@ -38,6 +38,16 @@ func TestCreateTeam(cur realm, t *testing.T) {
 			CreateTeam(cross(cur), name, "", false)
 		}, name)
 	}
+	upper := address(strings.ToUpper(carol.String()))
+	uassert.True(t, upper.IsValid())
+	urequire.AbortsWithMessage(t, cur, "invalid address", func(cur realm) {
+		testing.SetRealm(testing.NewUserRealm(alice))
+		AddMember(cross(cur), id, upper)
+	})
+	urequire.AbortsWithMessage(t, cur, "invalid address", func(cur realm) {
+		testing.SetRealm(testing.NewUserRealm(alice))
+		Invite(cross(cur), id, upper)
+	})
 	urequire.AbortsWithMessage(t, cur, "team description must fit on one line", func(cur realm) {
 		testing.SetRealm(testing.NewUserRealm(bob))
 		CreateTeam(cross(cur), "Blue Owls", "line\nbreak", false)
@@ -165,7 +175,9 @@ func TestRender(cur realm, t *testing.T) {
 	Invite(cross(cur), id, bob)
 	ids := strconv.FormatUint(id, 10)
 
-	home := Render("")
+	// Teams list oldest first, so this one sits on the last page.
+	last := (teams.Size() + pageSize - 1) / pageSize
+	home := Render("?page=" + strconv.Itoa(last))
 	uassert.True(t, strings.Contains(home, "[Render Crew](/r/samcrew/teams:team/"+ids+")"), home)
 
 	page := Render("team/" + ids)
@@ -195,8 +207,9 @@ func TestRenderPaging(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(player, "?page=2"), player)
 	uassert.Equal(t, pageSize, strings.Count(player, "🧑 Member"))
 
-	invites := Render("player/" + bob.String() + "?invites=2")
-	uassert.True(t, strings.Contains(invites, "?invites=1"), invites)
+	// The invites picker keeps the page the teams table is on.
+	invites := Render("player/" + bob.String() + "?page=3&invites=2")
+	uassert.True(t, strings.Contains(invites, "?invites=1&page=3"), invites)
 	uassert.Equal(t, indexTree(&invited, bob).Size()-pageSize, strings.Count(invites, "✅ Accept"), invites)
 }
 

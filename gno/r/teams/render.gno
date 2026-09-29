@@ -2,6 +2,7 @@ package teams
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"gno.land/p/moul/md/v0"
@@ -62,7 +63,7 @@ func renderHome(res *mux.ResponseWriter, req *mux.Request) {
 			s += ufmt.Sprintf("| %s | %s | %d | %s | %s |\n",
 				teamLink(t), playerLink(t.owner), t.members.Size(), joining(t), join)
 		}
-		s += "\n" + page.Picker(req.Path) + "\n\n"
+		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
 	s += "---\n\n"
 
@@ -89,7 +90,7 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 	ids := idText(t.id)
 
 	s := nav()
-	s += "# " + chip(t.id) + " " + t.name + "\n\n"
+	s += "# " + chip(t.id) + " " + md.EscapeText(t.name) + "\n\n"
 	if t.description == "" {
 		s += "*No description yet.*\n\n"
 	} else {
@@ -128,7 +129,7 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 		addr := address(item.Key)
 		s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(addr), role(t, addr), date(item.Value.(time.Time)))
 	}
-	s += "\n" + page.Picker(req.Path) + "\n\n"
+	s += "\n" + page.Picker(req.RawPath) + "\n\n"
 
 	if t.invites.Size() > 0 {
 		s += "---\n\n"
@@ -140,13 +141,13 @@ func renderTeam(res *mux.ResponseWriter, req *mux.Request) {
 			cancel := md.Link("❌ Cancel", txlink.Call("CancelInvite", "id", ids, "player", item.Key))
 			s += ufmt.Sprintf("| %s | %s | %s |\n", playerLink(address(item.Key)), date(item.Value.(time.Time)), cancel)
 		}
-		s += "\n" + page.Picker(req.Path) + "\n\n"
+		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
 	res.Write(s)
 }
 
 func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
-	addr := address(req.GetVar("address"))
+	addr := address(strings.ToLower(req.GetVar("address")))
 	if !addr.IsValid() {
 		res.Write(notFound("Not a valid address"))
 		return
@@ -167,7 +168,7 @@ func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
 			t := teams.Get(item.Key).(*team)
 			s += ufmt.Sprintf("| %s | %s | %d |\n", teamLink(t), role(t, addr), t.members.Size())
 		}
-		s += "\n" + page.Picker(req.Path) + "\n\n"
+		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
 
 	inviteIDs := indexTree(&invited, addr)
@@ -184,7 +185,7 @@ func renderPlayer(res *mux.ResponseWriter, req *mux.Request) {
 				md.Link("✅ Accept", txlink.Call("Join", "id", ids)),
 				md.Link("❌ Decline", txlink.Call("CancelInvite", "id", ids, "player", addr.String())))
 		}
-		s += "\n" + page.Picker(req.Path) + "\n\n"
+		s += "\n" + page.Picker(req.RawPath) + "\n\n"
 	}
 	res.Write(s)
 }

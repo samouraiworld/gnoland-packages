@@ -60,9 +60,7 @@ func Join(cur realm, id uint64) {
 // Invite lets player call Join while the team is invite only. Owner only.
 func Invite(cur realm, id uint64, player address) {
 	t := mustOwn(cur, id)
-	if !player.IsValid() {
-		panic("invalid address")
-	}
+	mustValidAddress(player)
 	if t.members.Has(player.String()) {
 		panic("already a member")
 	}
@@ -84,9 +82,7 @@ func CancelInvite(cur realm, id uint64, player address) {
 // AddMember puts player in the team without asking them. Owner only.
 func AddMember(cur realm, id uint64, player address) {
 	t := mustOwn(cur, id)
-	if !player.IsValid() {
-		panic("invalid address")
-	}
+	mustValidAddress(player)
 	addMember(t, player)
 }
 
@@ -107,6 +103,14 @@ func TransferOwnership(cur realm, id uint64, newOwner address) {
 		panic("the new owner must be a member")
 	}
 	t.owner = newOwner
+}
+
+// mustValidAddress refuses the upper-case spelling of an address too: it
+// decodes, but no caller ever matches the key it would be stored under.
+func mustValidAddress(addr address) {
+	if !addr.IsValid() || addr.String() != strings.ToLower(addr.String()) {
+		panic("invalid address")
+	}
 }
 
 func mustOwn(cur realm, id uint64) *team {
