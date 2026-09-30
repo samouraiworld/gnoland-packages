@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gno.land/p/moul/md/v0"
@@ -105,10 +106,10 @@ func renderPoll(res *mux.ResponseWriter, req *mux.Request) {
 	}
 
 	s := "# 📊 " + name(owner) + " asks\n\n"
-	s += "## " + md.EscapeText(p.question) + "\n\n"
+	s += "## " + plain(p.question) + "\n\n"
 	total := p.votes.Size()
 	for i, c := range p.choices {
-		s += md.Bold(strconv.Itoa(i+1)+". "+md.EscapeText(c)) + " · " + votes(p.counts[i])
+		s += md.Bold(strconv.Itoa(i+1)+". "+plain(c)) + " · " + votes(p.counts[i])
 		if !p.closed {
 			url := txlink.NewLink("Vote").AddArgs("owner", owner.String(), "choice", strconv.Itoa(i+1)).URL()
 			s += " · " + md.Link("vote", url)
@@ -153,8 +154,7 @@ func mustPoll(owner address) *poll {
 // characters.
 func mustText(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	// EscapeText drops zero-width characters, which Fields keeps.
-	if s == "" || md.EscapeText(s) == "" {
+	if !visible(s) {
 		panic("the text is empty")
 	}
 	if utf8.RuneCountInString(s) > max {
@@ -175,4 +175,24 @@ func name(addr address) string {
 
 func realmLink() string {
 	return strings.TrimPrefix(unsafe.CurrentRealm().PkgPath(), runtime.ChainDomain())
+}
+
+// plain escapes visitor text for the page, @ included, which gnoweb would
+// otherwise turn into a profile link.
+func plain(s string) string {
+	return strings.ReplaceAll(md.EscapeText(s), "@", "\\@")
+}
+
+// visible reports whether s holds a character a reader can see.
+func visible(s string) bool {
+	for _, r := range s {
+		switch r {
+		case 0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0: // letters and a symbol that draw nothing
+			continue
+		}
+		if unicode.IsPrint(r) && !unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
 }

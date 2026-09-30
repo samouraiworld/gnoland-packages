@@ -83,3 +83,11 @@ func counts(owner address) string {
 	}
 	return "[" + strings.Join(s, " ") + "]"
 }
+
+func TestChoiceIsPlainText(cur realm, t *testing.T) {
+	owner := testutils.TestAddress("owner")
+	testing.SetRealm(testing.NewUserRealm(owner))
+	Create(cross(cur), "Ask @support?", "yes;no")
+	uassert.True(t, strings.Contains(Render(owner.String()), `Ask \@support?`))
+	uassert.AbortsContains(t, cur, "empty", func() { Create(cross(cur), "Blank?", "yes;"+"\u2060\u3164\u00ad") })
+}
