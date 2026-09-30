@@ -85,3 +85,14 @@ func TestPages(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(Render(""), "func=Open"))
 	uassert.True(t, strings.Contains(Render(nobody.String()), "no guestbook yet"))
 }
+
+func TestMessageIsPlainText(cur realm, t *testing.T) {
+	testing.SetRealm(testing.NewUserRealm(carol))
+	Sign(cross(cur), alice, "ping @support")
+	uassert.True(t, strings.Contains(Render(alice.String()), `ping \@support`))
+	uassert.AbortsContains(t, cur, "empty", func() { Sign(cross(cur), alice, "\u2060\u3164\u00ad") })
+
+	owner := testutils.TestAddress("owner")
+	page := Render(owner.String() + "?x=\x01")
+	uassert.True(t, strings.Contains(page, "message 10") && strings.Contains(page, "?page=2"), page)
+}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gno.land/p/moul/md/v0"
@@ -108,14 +109,14 @@ func renderBook(res *mux.ResponseWriter, req *mux.Request) {
 		res.Write(s)
 		return
 	}
-	pg := newPager(&b.entries).MustGetPageByPath(req.RawPath)
+	pg, at := pageOf(&b.entries, req.RawPath)
 	for _, item := range pg.Items {
 		e := item.Value.(*entry)
 		remove := txlink.NewLink("Remove").AddArgs("signer", e.signer.String()).URL()
 		s += "- " + md.Bold(name(e.signer)) + " on " + e.at.Format("2006-01-02") +
-			": " + md.EscapeText(e.message) + " · " + md.Link("remove", remove) + "\n"
+			": " + plain(e.message) + " · " + md.Link("remove", remove) + "\n"
 	}
-	s += "\n" + pg.Picker(req.RawPath) + "\n"
+	s += "\n" + pg.Picker(at) + "\n"
 	s += "Only the owner can remove a message.\n"
 	res.Write(s)
 }
@@ -132,8 +133,7 @@ func mustBook(owner address) *book {
 // characters.
 func mustText(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	// EscapeText drops zero-width characters, which Fields keeps.
-	if s == "" || md.EscapeText(s) == "" {
+	if !visible(s) {
 		panic("the text is empty")
 	}
 	if utf8.RuneCountInString(s) > max {
@@ -156,8 +156,34 @@ func realmLink() string {
 	return strings.TrimPrefix(unsafe.CurrentRealm().PkgPath(), runtime.ChainDomain())
 }
 
-func newPager(tree *avl.Tree) *pager.Pager {
+// pageOf returns the page of tree the path's query asks for, newest first,
+// and the path to build page links from. A query that does not parse shows
+// the first page.
+func pageOf(tree *avl.Tree, rawPath string) (*pager.Page, string) {
 	p := pager.NewPager(tree, pageSize, true) // ids grow, so reversed is newest first
 	p.SizeQueryParam = ""                     // a link cannot raise the page size
-	return p
+	if pg, err := p.GetPageByPath(rawPath); err == nil {
+		return pg, rawPath
+	}
+	return p.GetPage(1), ""
+}
+
+// plain escapes visitor text for the page, @ included, which gnoweb would
+// otherwise turn into a profile link.
+func plain(s string) string {
+	return strings.ReplaceAll(md.EscapeText(s), "@", "\\@")
+}
+
+// visible reports whether s holds a character a reader can see.
+func visible(s string) bool {
+	for _, r := range s {
+		switch r {
+		case 0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0: // letters and a symbol that draw nothing
+			continue
+		}
+		if unicode.IsPrint(r) && !unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
 }
