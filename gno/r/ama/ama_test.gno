@@ -79,3 +79,10 @@ func TestPages(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(Render(nobody.String()), "no page yet"))
 	uassert.True(t, strings.Contains(Render(nobody.String()+"/waiting"), "no page yet"))
 }
+
+func TestQuestionIsPlainText(cur realm, t *testing.T) {
+	testing.SetRealm(testing.NewUserRealm(testutils.TestAddress("dave")))
+	Ask(cross(cur), alice, "ping @support")
+	uassert.True(t, strings.Contains(Render(alice.String()+"/waiting?x=\x01"), `ping \@support`))
+	uassert.AbortsContains(t, cur, "empty", func() { Ask(cross(cur), alice, "\u2060\u3164\u00ad") })
+}
