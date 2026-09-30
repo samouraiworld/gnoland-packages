@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gno.land/p/moul/md/v0"
@@ -137,18 +138,18 @@ func renderPage(res *mux.ResponseWriter, req *mux.Request) {
 		res.Write(s)
 		return
 	}
-	pg := newPager(&p.donations).MustGetPageByPath(req.RawPath)
+	pg, at := pageOf(&p.donations, req.RawPath)
 	for _, item := range pg.Items {
 		d := item.Value.(*donation)
 		id, _ := seqid.FromBinary(item.Key)
 		s += "- " + md.Bold(name(d.donor)) + " gave " + md.Bold(formatCoins(d.amount)) +
 			" on " + d.at.Format("2006-01-02")
 		if d.note != "" {
-			s += ": " + md.EscapeText(d.note)
+			s += ": " + plain(d.note)
 		}
 		s += " `#" + strconv.FormatUint(uint64(id), 10) + "`\n"
 	}
-	s += "\n" + pg.Picker(req.RawPath) + "\n"
+	s += "\n" + pg.Picker(at) + "\n"
 	s += "The owner hides a note with " + md.Link("RemoveNote", txlink.Call("RemoveNote")) + " and its number.\n"
 	res.Write(s)
 }
@@ -172,7 +173,7 @@ func mustPage(owner address) *page {
 // mustText trims s to single spaces and refuses it longer than max characters.
 func mustText(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	if s != "" && md.EscapeText(s) == "" {
+	if s != "" && !visible(s) {
 		panic("the text shows nothing")
 	}
 	if utf8.RuneCountInString(s) > max {
@@ -213,8 +214,34 @@ func realmLink() string {
 	return strings.TrimPrefix(unsafe.CurrentRealm().PkgPath(), runtime.ChainDomain())
 }
 
-func newPager(tree *avl.Tree) *pager.Pager {
+// pageOf returns the page of tree the path's query asks for, newest first,
+// and the path to build page links from. A query that does not parse shows
+// the first page.
+func pageOf(tree *avl.Tree, rawPath string) (*pager.Page, string) {
 	p := pager.NewPager(tree, pageSize, true) // ids grow, so reversed is newest first
 	p.SizeQueryParam = ""                     // a link cannot raise the page size
-	return p
+	if pg, err := p.GetPageByPath(rawPath); err == nil {
+		return pg, rawPath
+	}
+	return p.GetPage(1), ""
+}
+
+// plain escapes visitor text for the page, @ included, which gnoweb would
+// otherwise turn into a profile link.
+func plain(s string) string {
+	return strings.ReplaceAll(md.EscapeText(s), "@", "\\@")
+}
+
+// visible reports whether s holds a character a reader can see.
+func visible(s string) bool {
+	for _, r := range s {
+		switch r {
+		case 0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0: // letters and a symbol that draw nothing
+			continue
+		}
+		if unicode.IsPrint(r) && !unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
 }

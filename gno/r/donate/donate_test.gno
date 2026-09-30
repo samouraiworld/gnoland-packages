@@ -100,3 +100,17 @@ func TestPages(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(Render(""), "func=Open"))
 	uassert.True(t, strings.Contains(Render(nobody.String()), "no donate page yet"))
 }
+
+// A note shows as typed: an @ stays text, a note of invisible characters is
+// refused, and a query that does not parse still shows the page.
+func TestNoteIsPlainText(cur realm, t *testing.T) {
+	send(chain.Coins{chain.NewCoin("ugnot", 1)})
+	testing.SetRealm(testing.NewUserRealm(bob))
+	Donate(cross(cur), alice, "ping @support")
+	uassert.True(t, strings.Contains(Render(alice.String()), `ping \@support`))
+	uassert.True(t, strings.Contains(Render(alice.String()+"?x=\x01"), "## Donations"))
+
+	send(chain.Coins{chain.NewCoin("ugnot", 1)})
+	testing.SetRealm(testing.NewUserRealm(bob))
+	uassert.AbortsContains(t, cur, "shows nothing", func() { Donate(cross(cur), alice, "\u2060\u3164\u00ad") })
+}
