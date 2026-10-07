@@ -219,6 +219,9 @@ func Reveal(cur realm, id int, passphrase string) {
 	if time.Now().After(g.deadline()) {
 		panic("reveal clock ran out")
 	}
+	if len(passphrase) > 128 {
+		panic("passphrase longer than 128 bytes")
+	}
 	if sha256Hex(passphrase) != g.Commitment {
 		panic("passphrase does not match the commitment")
 	}
