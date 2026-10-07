@@ -128,7 +128,7 @@ crossing functions.
 
 ## Read accessors
 
-`GameJSON(id)` and `ActiveJSON(offset, limit)` return hand-built JSON for
+`GameJSON(id)`, `ActiveJSON(offset, limit)` and `LeadersJSON()` (the two top-10 boards) return hand-built JSON for
 clients (Memba's Arcade) that read over `vm/qeval` instead of scraping
 `Render`. Each response carries `now`, the block time, so clients count the
 90s clock in chain time. The board is a 42-char column-major string. Strings

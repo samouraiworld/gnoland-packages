@@ -106,3 +106,30 @@ func writeNum(b *strings.Builder, k string, v int64) {
 	b.WriteString(`":`)
 	b.WriteString(strconv.FormatInt(v, 10))
 }
+
+// LeadersJSON returns {"wins":[...],"gnot":[...]}: the top-10 boards (most
+// games won, most ugnot won) kept at settlement, highest first. Each entry is
+// {"addr":<address>,"score":<int>}.
+func LeadersJSON() string {
+	var b strings.Builder
+	b.WriteString(`{"wins":`)
+	writeLeaders(&b, topWins)
+	b.WriteString(`,"gnot":`)
+	writeLeaders(&b, topGnot)
+	b.WriteString("}")
+	return b.String()
+}
+
+func writeLeaders(b *strings.Builder, board []leader) {
+	b.WriteString("[")
+	for i, l := range board {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"addr":`)
+		b.WriteString(strconv.Quote(l.Addr.String()))
+		writeNum(b, "score", l.Score)
+		b.WriteString("}")
+	}
+	b.WriteString("]")
+}

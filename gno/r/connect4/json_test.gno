@@ -81,3 +81,13 @@ func TestActiveJSON(cur realm, t *testing.T) {
 	uassert.Equal(t, 2, strings.Count(ActiveJSON(0, 1000), `"id":`))
 	uassert.True(t, strings.HasSuffix(ActiveJSON(50, 10), `"games":[]}`))
 }
+
+func TestLeadersJSON(cur realm, t *testing.T) {
+	reset()
+	uassert.Equal(t, `{"wins":[],"gnot":[]}`, LeadersJSON())
+	g := started(cur)
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(0)
+	Resign(cross(cur), g.ID)
+	uassert.Equal(t, `{"wins":[{"addr":"`+bob.String()+`","score":1}],"gnot":[{"addr":"`+bob.String()+`","score":`+strconv.FormatInt(2*stake-fee, 10)+`}]}`, LeadersJSON())
+}
