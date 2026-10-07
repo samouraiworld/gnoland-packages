@@ -44,15 +44,23 @@ Two platform facts shape the design:
   player's offer by posting its commitment first.
 - **Fee** is a flat 0.1 GNOT (100,000 ugnot) per decisive game (one with a
   winner), adjustable by the owner up to 0.5 GNOT (half the minimum stake)
-  and snapshotted per game at `Offer`, so a live game's terms never change;
-  the cap stops the owner raising it to take most of a stake just before an
-  offer lands. Draws and void games pay no fee. The lobby shows each offer's
+  and snapshotted per game at `Offer`, so a live game's terms never change.
+  `Offer` takes the highest fee the creator accepts (`maxFee`) and refuses a
+  higher one, so the owner can't raise it while an offer is in flight; the
+  cap bounds it for everyone. `ActiveJSON` gives the current fee, and the
+  gnoweb offer link passes it. Draws and void games pay no fee. The lobby shows each offer's
   own fee. The owner (`p/nt/ownable/v0`) can `SetFee` and `WithdrawFees`
   (collected fees only, never stakes); it is whoever deploys the realm
   (`init` with an `IsUserCall()` previous), so the deploying multisig owns it
   with no address baked into the code. Ownership moves in two steps,
   `TransferOwnership(newOwner)` then `AcceptOwnership()` by that address, so
-  a mistyped or non-canonical spelling can never strand ownership and fees.
+  a mistyped spelling can never strand ownership and fees.
+- **Address arguments must be canonical.** The chain accepts four texts for
+  one address (bech32 or bech32m, lower or upper case), but a caller's
+  address is always lower-case bech32. An opponent or a new owner in another
+  spelling could never match its caller, so `Offer` and `TransferOwnership`
+  refuse it (`address.gno`, the check of `p/samcrew/launchpad/meta/v1`,
+  copied so the realm doesn't depend on that package).
 - **Stale moves.** `Play(id, column, move)` takes the move count the player
   saw and refuses any other. A client that re-sends a move whose outcome it
   could not see (a dropped response) cannot have it land on a later turn.

@@ -179,9 +179,11 @@ func renderNew(query string) string {
 		who = opponent.String()
 	}
 	b.WriteString("Stake " + gnot(stake) + ", open to " + who + " for " + strconv.Itoa(validFor) + " min, " +
-		"commitment `" + commitment + "`. Check it is the sha256 of your own passphrase before signing.\n\n")
+		"house fee at most " + gnot(fee) + ", commitment `" + commitment + "`. " +
+		"Check it is the sha256 of your own passphrase before signing.\n\n")
 	b.WriteString("**[Post offer for " + gnot(stake) + "](" + txlink.NewLink("Offer").
-		AddArgs("opponent", opponent.String(), "validFor", strconv.Itoa(validFor), "commitment", commitment).
+		AddArgs("opponent", opponent.String(), "validFor", strconv.Itoa(validFor), "commitment", commitment,
+			"maxFee", strconv.FormatInt(fee, 10)).
 		SetSend(strconv.FormatInt(stake, 10)+denom).URL() + ")**\n")
 	return b.String()
 }

@@ -32,7 +32,7 @@ func TestGamePageShowsActionsForEveryState(cur realm, t *testing.T) {
 
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), "", 10, commit())
+	id := Offer(cross(cur), "", 10, commit(), fee)
 	page := "game/" + strconv.Itoa(id)
 	contains(Render(page), "func=Accept", ".send=10000000ugnot", "func=Cancel", "Open offer")
 
@@ -70,7 +70,7 @@ func TestLobbyLinksEveryGameToItsPage(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), "", 10, commit())
+	id := Offer(cross(cur), "", 10, commit(), fee)
 	g, _ := accepted(cur)
 	// Render as if deployed elsewhere: links must follow the realm's real path.
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/nym-mikecito001/connect4"))
@@ -216,7 +216,7 @@ func TestLobbyListsAtMostLobbyRows(cur realm, t *testing.T) {
 	for i := 0; i < lobbyRows+3; i++ {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		pay(stake)
-		Offer(cross(cur), "", 10, commit())
+		Offer(cross(cur), "", 10, commit(), fee)
 	}
 	out := Render("")
 	uassert.Equal(t, lobbyRows, strings.Count(out, "func=Accept"))
@@ -229,7 +229,7 @@ func TestLobbySkipsExpiredOffersAndShowsEachFee(cur realm, t *testing.T) {
 	for i := 0; i < lobbyRows; i++ {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		pay(stake)
-		Offer(cross(cur), "", 1, commit())
+		Offer(cross(cur), "", 1, commit(), fee)
 	}
 	testing.SkipHeights(13) // 65s: all expired
 	g := started(cur)
@@ -245,7 +245,7 @@ func TestLobbySkipsExpiredOffersAndShowsEachFee(cur realm, t *testing.T) {
 	SetFee(cross(cur), 300_000)
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	Offer(cross(cur), "", 30, commit())
+	Offer(cross(cur), "", 30, commit(), fee)
 	testing.SetRealm(testing.NewUserRealm(admin))
 	pay(0)
 	SetFee(cross(cur), 100_000)

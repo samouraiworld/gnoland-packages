@@ -41,7 +41,7 @@ import (
 const (
 	moveTimeout = 90 * time.Second
 	maxOfferTTL = 60 // minutes
-	maxFee      = minStake / 2
+	feeCap      = minStake / 2
 	minStake    = 1_000_000 // ugnot
 	denom       = "ugnot"
 )
@@ -116,7 +116,7 @@ func init(cur realm) {
 // Offer posts a game open for validFor minutes. The stake is the ugnot sent
 // with the call. A non-empty opponent makes the offer private. commitment is
 // the lowercase hex sha256 of a secret passphrase, revealed after Accept.
-func Offer(cur realm, opponent address, validFor int, commitment string) int {
+func Offer(cur realm, opponent address, validFor int, commitment string, maxFee int64) int {
 	noSession("Offer")
 	stake := received(cur)
 	caller := cur.Previous().Address()
@@ -125,6 +125,11 @@ func Offer(cur realm, opponent address, validFor int, commitment string) int {
 	}
 	if errs := validateOffer(stake, validFor, opponent, commitment); len(errs) > 0 {
 		panic(errs[0])
+	}
+	// The fee is snapshotted into the game: maxFee is the most the creator
+	// agreed to, so a fee raised while the offer was in flight is refused.
+	if fee > maxFee {
+		panic("the house fee is " + gnot(fee) + ", above your maximum of " + gnot(maxFee))
 	}
 	useCommitment(caller, commitment)
 	nextID++
@@ -156,9 +161,9 @@ func validateOffer(stake int64, validFor int, opponent address, commitment strin
 	if validFor < 1 || validFor > maxOfferTTL {
 		errs = append(errs, "validFor must be between 1 and 60 minutes")
 	}
-	// IsValid also accepts upper-case spellings, which would never match the
-	// lower-case address Accept compares against.
-	if opponent != "" && (!opponent.IsValid() || strings.ToLower(string(opponent)) != string(opponent)) {
+	// IsValid also accepts other spellings of an address, which would never
+	// match the canonical one Accept compares against.
+	if opponent != "" && !canonical(opponent) {
 		errs = append(errs, "invalid opponent address (use the lower-case g1… form)")
 	}
 	if !isHexSHA256(commitment) {
@@ -358,8 +363,8 @@ func SetFee(cur realm, amount int64) {
 	owner.AssertOwnedBy(cur.Previous().Address())
 	// Capped so the owner can't raise the fee to take most of a stake by
 	// changing it just before an offer lands.
-	if amount < 0 || amount > maxFee {
-		panic("fee must be between 0 and " + gnot(maxFee))
+	if amount < 0 || amount > feeCap {
+		panic("fee must be between 0 and " + gnot(feeCap))
 	}
 	fee = amount
 }
@@ -382,8 +387,8 @@ func TransferOwnership(cur realm, newOwner address) {
 	noCoins()
 	noSession("TransferOwnership")
 	owner.AssertOwnedBy(cur.Previous().Address())
-	if !newOwner.IsValid() {
-		panic("invalid address")
+	if !canonical(newOwner) {
+		panic("invalid address (use the lower-case g1… form)")
 	}
 	pendingOwner = newOwner
 }

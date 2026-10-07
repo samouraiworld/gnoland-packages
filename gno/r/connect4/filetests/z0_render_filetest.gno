@@ -27,12 +27,12 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(alice))
 	testing.SetOriginSend(stake)
 	testing.IssueCoins(c4, stake)
-	g1 := connect4.Offer(cross(cur), "", 15, commit("alice four random words"))
+	g1 := connect4.Offer(cross(cur), "", 15, commit("alice four random words"), 100_000)
 
 	testing.SetRealm(testing.NewUserRealm(carol))
 	testing.SetOriginSend(stake)
 	testing.IssueCoins(c4, stake)
-	connect4.Offer(cross(cur), bob, 5, commit("carol four random words"))
+	connect4.Offer(cross(cur), bob, 5, commit("carol four random words"), 100_000)
 
 	testing.SetRealm(testing.NewUserRealm(bob))
 	testing.SetOriginSend(stake)
@@ -137,9 +137,9 @@ func main(cur realm) {
 //
 // ## Ready
 //
-// Stake 12.5 GNOT, open to anyone for 10 min, commitment `5fb8d3d0c4f3b0fe7ab6ab1f7eda42c6e2de0c3c1d4a6c5e3d0f2f5d0e4f5a6b`. Check it is the sha256 of your own passphrase before signing.
+// Stake 12.5 GNOT, open to anyone for 10 min, house fee at most 0.1 GNOT, commitment `5fb8d3d0c4f3b0fe7ab6ab1f7eda42c6e2de0c3c1d4a6c5e3d0f2f5d0e4f5a6b`. Check it is the sha256 of your own passphrase before signing.
 //
-// **[Post offer for 12.5 GNOT](/r/samcrew/connect4$help&func=Offer&.send=12500000ugnot&commitment=5fb8d3d0c4f3b0fe7ab6ab1f7eda42c6e2de0c3c1d4a6c5e3d0f2f5d0e4f5a6b&opponent=&validFor=10)**
+// **[Post offer for 12.5 GNOT](/r/samcrew/connect4$help&func=Offer&.send=12500000ugnot&commitment=5fb8d3d0c4f3b0fe7ab6ab1f7eda42c6e2de0c3c1d4a6c5e3d0f2f5d0e4f5a6b&maxFee=100000&opponent=&validFor=10)**
 //
 // -----
 // # Not found

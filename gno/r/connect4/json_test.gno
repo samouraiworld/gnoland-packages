@@ -18,7 +18,7 @@ func TestGameJSONOpenOffer(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), bob, 10, commit())
+	id := Offer(cross(cur), bob, 10, commit(), fee)
 	s := GameJSON(id)
 	uassert.True(t, strings.Contains(s, `"id":1,`))
 	uassert.True(t, strings.Contains(s, `"creator":"`+alice.String()+`"`))
@@ -66,12 +66,14 @@ func TestActiveJSON(cur realm, t *testing.T) {
 	for i := 0; i < 3; i++ {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		pay(stake)
-		Offer(cross(cur), "", 10, commit())
+		Offer(cross(cur), "", 10, commit(), fee)
 	}
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
 	Cancel(cross(cur), 2)
 	s := ActiveJSON(0, 10)
+	uassert.True(t, strings.HasPrefix(s, `{"now":`))
+	uassert.True(t, strings.Contains(s, `,"fee":100000,"games":[`)) // the fee a new offer pays
 	uassert.True(t, strings.Contains(s, `"id":1,`))
 	uassert.False(t, strings.Contains(s, `"id":2,`))
 	uassert.True(t, strings.Contains(s, `"id":3,`))

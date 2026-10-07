@@ -21,8 +21,9 @@ func GameJSON(id int) string {
 	return b.String()
 }
 
-// ActiveJSON returns {"now":<unix>,"games":[...]}: Open and Playing games in
-// id order, skipping offset and returning at most limit (clamped to 1-100).
+// ActiveJSON returns {"now":<unix>,"fee":<ugnot>,"games":[...]}: the house fee
+// for new offers, then Open and Playing games in id order, skipping offset and
+// returning at most limit (clamped to 1-100).
 func ActiveJSON(offset, limit int) string {
 	if offset < 0 {
 		offset = 0
@@ -35,6 +36,7 @@ func ActiveJSON(offset, limit int) string {
 	}
 	var b strings.Builder
 	writeNow(&b)
+	writeNum(&b, "fee", fee)
 	b.WriteString(`,"games":[`)
 	n := 0
 	active.IterateByOffset(offset, limit, func(_ string, v any) bool {

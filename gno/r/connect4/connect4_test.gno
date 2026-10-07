@@ -3,6 +3,7 @@ package connect4
 import (
 	"chain"
 	"chain/banker"
+	"crypto/bech32"
 	"crypto/sha256"
 	"strconv"
 	"strings"
@@ -66,7 +67,7 @@ func accepted(cur realm) (*Game, string) {
 	p := phrase()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), "", 10, sha256Hex(p))
+	id := Offer(cross(cur), "", 10, sha256Hex(p), fee)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	pay(stake)
 	Accept(cross(cur), id, seedCommit(id))
@@ -122,29 +123,29 @@ func TestOfferRejects(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(minStake - 1)
-	uassert.AbortsContains(t, cur, "stake below minimum", func() { Offer(cross(cur), "", 10, commit()) })
+	uassert.AbortsContains(t, cur, "stake below minimum", func() { Offer(cross(cur), "", 10, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "validFor", func() { Offer(cross(cur), "", 0, commit()) })
+	uassert.AbortsContains(t, cur, "validFor", func() { Offer(cross(cur), "", 0, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "validFor", func() { Offer(cross(cur), "", 61, commit()) })
+	uassert.AbortsContains(t, cur, "validFor", func() { Offer(cross(cur), "", 61, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "yourself", func() { Offer(cross(cur), alice, 10, commit()) })
+	uassert.AbortsContains(t, cur, "yourself", func() { Offer(cross(cur), alice, 10, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
-	uassert.AbortsContains(t, cur, "send exactly one", func() { Offer(cross(cur), "", 10, commit()) })
+	uassert.AbortsContains(t, cur, "send exactly one", func() { Offer(cross(cur), "", 10, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	testing.SetOriginSend(chain.Coins{{"ugnot", stake}, {"foo", 1}})
-	uassert.AbortsContains(t, cur, "send exactly one", func() { Offer(cross(cur), "", 10, commit()) })
+	uassert.AbortsContains(t, cur, "send exactly one", func() { Offer(cross(cur), "", 10, commit(), fee) })
 }
 
 func TestAcceptRejects(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), bob, 1, commit())
+	id := Offer(cross(cur), bob, 1, commit(), fee)
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
 	uassert.AbortsContains(t, cur, "own offer", func() { Accept(cross(cur), id, seedCommit(id)) })
@@ -256,7 +257,7 @@ func TestCancel(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), "", 1, commit())
+	id := Offer(cross(cur), "", 1, commit(), fee)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	pay(0)
 	uassert.AbortsContains(t, cur, "only the creator", func() { Cancel(cross(cur), id) })
@@ -270,7 +271,7 @@ func TestCancel(cur realm, t *testing.T) {
 	// Once expired, anyone may cancel; the refund still goes to the creator.
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id = Offer(cross(cur), "", 1, commit())
+	id = Offer(cross(cur), "", 1, commit(), fee)
 	testing.SkipHeights(13) // 65s > 1 minute
 	before = balance(alice)
 	testing.SetRealm(testing.NewUserRealm(carol))
@@ -317,8 +318,8 @@ func TestFeeSnapshotAndWithdraw(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(admin))
 	pay(0)
 	uassert.AbortsContains(t, cur, "fee must be between", func() { SetFee(cross(cur), -1) })
-	uassert.AbortsContains(t, cur, "fee must be between 0 and 0.5 GNOT", func() { SetFee(cross(cur), maxFee+1) })
-	SetFee(cross(cur), maxFee)
+	uassert.AbortsContains(t, cur, "fee must be between 0 and 0.5 GNOT", func() { SetFee(cross(cur), feeCap+1) })
+	SetFee(cross(cur), feeCap)
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
 	Resign(cross(cur), g.ID)
@@ -334,8 +335,8 @@ func TestFeeSnapshotAndWithdraw(cur realm, t *testing.T) {
 	// A raised fee applies to new offers only, and stays below the minimum stake.
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(minStake)
-	id := Offer(cross(cur), "", 10, commit())
-	uassert.Equal(t, int64(maxFee), mustGet(id).Fee)
+	id := Offer(cross(cur), "", 10, commit(), fee)
+	uassert.Equal(t, int64(feeCap), mustGet(id).Fee)
 }
 
 func TestFinishedGameRejects(cur realm, t *testing.T) {
@@ -357,7 +358,7 @@ func TestFinishedGameRejects(cur realm, t *testing.T) {
 	uassert.AbortsContains(t, cur, "not open", func() { Accept(cross(cur), g.ID, seedCommit(g.ID)) })
 	testing.SetRealm(testing.NewUserRealm(carol))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "invalid opponent", func() { Offer(cross(cur), "notanaddress", 10, commit()) })
+	uassert.AbortsContains(t, cur, "invalid opponent", func() { Offer(cross(cur), "notanaddress", 10, commit(), fee) })
 }
 
 func TestRevealPhase(cur realm, t *testing.T) {
@@ -444,17 +445,17 @@ func TestCommitmentRejects(cur realm, t *testing.T) {
 	for _, bad := range []string{"", good[:63], good + "0", "G" + good[1:], "A" + good[1:]} {
 		testing.SetRealm(testing.NewUserRealm(alice))
 		pay(stake)
-		uassert.AbortsContains(t, cur, "64 lowercase hex", func() { Offer(cross(cur), "", 10, bad) })
+		uassert.AbortsContains(t, cur, "64 lowercase hex", func() { Offer(cross(cur), "", 10, bad, fee) })
 	}
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	Offer(cross(cur), "", 10, good)
+	Offer(cross(cur), "", 10, good, fee)
 	testing.SetRealm(testing.NewUserRealm(carol))
 	pay(stake)
-	Offer(cross(cur), "", 10, good) // another creator may use it: nobody can block anyone's offer
+	Offer(cross(cur), "", 10, good, fee) // another creator may use it: nobody can block anyone's offer
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "commitment already used", func() { Offer(cross(cur), "", 10, good) })
+	uassert.AbortsContains(t, cur, "commitment already used", func() { Offer(cross(cur), "", 10, good, fee) })
 
 	// An acceptor can't reuse a seed commitment either, even one used as a passphrase commitment.
 	testing.SetRealm(testing.NewUserRealm(bob))
@@ -468,11 +469,54 @@ func TestCommitmentRejects(cur realm, t *testing.T) {
 	uassert.AbortsContains(t, cur, "seedCommitment must be 64 lowercase hex", func() { Accept(cross(cur), 2, "x") })
 }
 
-func TestOpponentMustBeLowerCase(cur realm, t *testing.T) {
+// bech32m gives the other checksum of the same address, which IsValid accepts.
+func bech32m(a address) address {
+	_, data, err := bech32.DecodeNoLimit(a.String())
+	if err != nil {
+		panic(err)
+	}
+	m, err := bech32.EncodeM("g", data)
+	if err != nil {
+		panic(err)
+	}
+	return address(m)
+}
+
+func TestOpponentMustBeCanonical(cur realm, t *testing.T) {
 	reset()
+	for _, other := range []address{
+		address(strings.ToUpper(bob.String())),
+		bech32m(bob),
+		address(strings.ToUpper(bech32m(bob).String())),
+	} {
+		uassert.True(t, other.IsValid())
+		testing.SetRealm(testing.NewUserRealm(alice))
+		pay(stake)
+		uassert.AbortsContains(t, cur, "lower-case", func() { Offer(cross(cur), other, 10, commit(), fee) })
+	}
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "lower-case", func() { Offer(cross(cur), address(strings.ToUpper(bob.String())), 10, commit()) })
+	Offer(cross(cur), bob, 10, commit(), fee)
+}
+
+func TestOfferRefusesAFeeAboveItsMaximum(cur realm, t *testing.T) {
+	reset()
+	testing.SetRealm(testing.NewUserRealm(admin))
+	pay(0)
+	SetFee(cross(cur), 300_000) // raised while the creator's offer is in flight
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(stake)
+	uassert.AbortsContains(t, cur, "the house fee is 0.3 GNOT, above your maximum of 0.1 GNOT", func() {
+		Offer(cross(cur), "", 10, commit(), 100_000)
+	})
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(stake)
+	id := Offer(cross(cur), "", 10, commit(), 300_000)
+	uassert.Equal(t, int64(300_000), mustGet(id).Fee)
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(stake)
+	id = Offer(cross(cur), "", 10, commit(), 1_000_000) // a higher maximum still pays only the current fee
+	uassert.Equal(t, int64(300_000), mustGet(id).Fee)
 }
 
 func TestOwnershipTransferTakesTwoSteps(cur realm, t *testing.T) {
@@ -480,10 +524,12 @@ func TestOwnershipTransferTakesTwoSteps(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(carol))
 	pay(0)
 	uassert.AbortsContains(t, cur, "not owner", func() { TransferOwnership(cross(cur), carol) })
-	// A non-canonical spelling can be named but never accepted: the owner keeps the realm.
-	testing.SetRealm(testing.NewUserRealm(admin))
-	pay(0)
-	TransferOwnership(cross(cur), address(strings.ToUpper(carol.String())))
+	// A non-canonical spelling, which could never accept, is refused up front.
+	for _, other := range []address{address(strings.ToUpper(carol.String())), bech32m(carol)} {
+		testing.SetRealm(testing.NewUserRealm(admin))
+		pay(0)
+		uassert.AbortsContains(t, cur, "invalid address", func() { TransferOwnership(cross(cur), other) })
+	}
 	testing.SetRealm(testing.NewUserRealm(carol))
 	pay(0)
 	uassert.AbortsContains(t, cur, "no ownership transfer pending", func() { AcceptOwnership(cross(cur)) })
@@ -507,10 +553,10 @@ func TestPaymentsRequireUserCall(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/demo/somerealm"))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "only user-call", func() { Offer(cross(cur), "", 10, commit()) })
+	uassert.AbortsContains(t, cur, "only user-call", func() { Offer(cross(cur), "", 10, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), "", 10, commit())
+	id := Offer(cross(cur), "", 10, commit(), fee)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/demo/somerealm"))
 	pay(stake)
 	uassert.AbortsContains(t, cur, "only user-call", func() { Accept(cross(cur), id, seedCommit(id)) })
@@ -577,7 +623,7 @@ func TestSessionKeysCannotResignStakeOrOwn(cur realm, t *testing.T) {
 	uassert.AbortsContains(t, cur, "Resign needs the account's own key", func() { Resign(cross(cur), g.ID) })
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	uassert.AbortsContains(t, cur, "Offer needs the account's own key", func() { Offer(cross(cur), "", 10, commit()) })
+	uassert.AbortsContains(t, cur, "Offer needs the account's own key", func() { Offer(cross(cur), "", 10, commit(), fee) })
 	testing.SetRealm(testing.NewUserRealm(admin))
 	pay(0)
 	uassert.AbortsContains(t, cur, "SetFee needs", func() { SetFee(cross(cur), 0) })
@@ -592,7 +638,7 @@ func TestSessionKeysCannotAccept(cur realm, t *testing.T) {
 	reset()
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
-	id := Offer(cross(cur), "", 10, commit())
+	id := Offer(cross(cur), "", 10, commit(), fee)
 	testSession = true
 	testing.SetRealm(testing.NewUserRealm(bob))
 	pay(stake)
