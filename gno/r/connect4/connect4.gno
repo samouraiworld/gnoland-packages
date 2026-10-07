@@ -2,21 +2,23 @@
 // a ugnot stake; anyone (or a named opponent) accepts with the same stake;
 // the winner takes the pot minus a flat house fee.
 //
-// The first mover is picked by commit-reveal: the creator offers with
-// sha256(passphrase) and must Reveal the passphrase within 90s of Accept, or
-// forfeit. The draw also mixes in the block height of Accept, which the
-// creator cannot know when committing (so it cannot grind a passphrase for a
-// known opponent), while the acceptor cannot use it without the passphrase.
-// Randomness computed in Accept alone could be re-rolled by an acceptor who
-// bundles [Accept, Play] in one atomic tx and lets it revert.
+// The first mover is picked by a two-sided commit-reveal. The creator offers
+// with sha256(passphrase), the acceptor accepts with sha256(seed). Then the
+// creator reveals the passphrase (Reveal) and the acceptor the seed
+// (RevealSeed), each within 90s, and the first mover is drawn from both. When
+// a player commits, the other side's secret is still hidden, so neither can
+// grind for an outcome, and once its secret is revealed nobody can change it;
+// the only way out is to not reveal, which forfeits. Watching a pending Accept
+// tells the creator nothing either, so it cannot cancel unfavourable games.
+// Each address may use a commitment once: a reused secret is already public.
 //
 // Calls signed by an account session key (Quick play) may only Play, Reveal,
-// ClaimTimeout and Cancel: a stolen session key must not resign games, move
-// stakes or act as the owner.
+// RevealSeed, ClaimTimeout and Cancel: a stolen session key must not resign
+// games, move stakes or act as the owner.
 //
 // Every move has a 90s clock measured in block time. Nothing on-chain fires
 // by itself, so an expired clock is settled by anyone calling ClaimTimeout:
-// an unrevealed game is won by the acceptor, a game whose first mover never
+// whoever did not reveal in time forfeits, a game whose first mover never
 // moved is void and both stakes are refunded, otherwise the player who ran
 // out of time forfeits.
 package connect4
@@ -38,7 +40,8 @@ import (
 
 const (
 	moveTimeout = 90 * time.Second
-	maxOfferTTL = 60        // minutes
+	maxOfferTTL = 60 // minutes
+	maxFee      = minStake / 2
 	minStake    = 1_000_000 // ugnot
 	denom       = "ugnot"
 )
@@ -66,13 +69,16 @@ type Game struct {
 	Stake     int64 // ugnot, per player
 	Fee       int64 // ugnot house fee, fixed at offer time
 	ExpiresAt time.Time
-	// AcceptHeight is the block height of Accept, mixed into the first-mover draw.
-	AcceptHeight int64
-	// Commitment is the lowercase hex sha256 of the creator's passphrase.
-	Commitment string
+	// Commitment is the lowercase hex sha256 of the creator's passphrase;
+	// SeedCommitment that of the acceptor's seed, given with Accept.
+	Commitment     string
+	SeedCommitment string
+	// Passphrase is set by Reveal; the draw waits for RevealSeed.
+	Passphrase string
+	Revealed   bool
 
 	Board    board
-	Turn     byte // 0 = awaiting Reveal, 1 = creator, 2 = acceptor
+	Turn     byte // 0 = awaiting the reveals, 1 = creator, 2 = acceptor
 	Moves    int
 	LastCol  int // column and row of the last piece dropped, valid if Moves > 0
 	LastRow  int
@@ -83,7 +89,7 @@ type Game struct {
 
 type Stats struct {
 	Games, Wins, Draws int
-	GnotWon            int64 // total ugnot received from wins
+	GnotWon            int64 // total net ugnot won: the opponent's stake minus the fee
 }
 
 var (
@@ -94,6 +100,8 @@ var (
 	fee           int64 = 100_000 // ugnot per decisive game
 	feesCollected int64
 	owner         *ownable.Ownable // the deployer; nil (no owner) if deployed some other way
+	pendingOwner  address          // set by TransferOwnership, made owner by AcceptOwnership
+	used          avl.Tree         // address + ":" + commitment -> true, both kinds
 	// testSession makes tests see every call as session-signed (no test hook sets one).
 	testSession bool
 )
@@ -118,6 +126,7 @@ func Offer(cur realm, opponent address, validFor int, commitment string) int {
 	if errs := validateOffer(stake, validFor, opponent, commitment); len(errs) > 0 {
 		panic(errs[0])
 	}
+	useCommitment(caller, commitment)
 	nextID++
 	g := &Game{
 		ID:        nextID,
@@ -147,8 +156,10 @@ func validateOffer(stake int64, validFor int, opponent address, commitment strin
 	if validFor < 1 || validFor > maxOfferTTL {
 		errs = append(errs, "validFor must be between 1 and 60 minutes")
 	}
-	if opponent != "" && !opponent.IsValid() {
-		errs = append(errs, "invalid opponent address")
+	// IsValid also accepts upper-case spellings, which would never match the
+	// lower-case address Accept compares against.
+	if opponent != "" && (!opponent.IsValid() || strings.ToLower(string(opponent)) != string(opponent)) {
+		errs = append(errs, "invalid opponent address (use the lower-case g1… form)")
 	}
 	if !isHexSHA256(commitment) {
 		errs = append(errs, "commitment must be 64 lowercase hex chars (sha256 of your passphrase)")
@@ -156,9 +167,10 @@ func validateOffer(stake int64, validFor int, opponent address, commitment strin
 	return errs
 }
 
-// Accept joins an open offer by sending exactly its stake. The creator then
-// has 90s to Reveal, which picks the first mover.
-func Accept(cur realm, id int) {
+// Accept joins an open offer by sending exactly its stake. seedCommitment is
+// the lowercase hex sha256 of a secret seed, revealed after the creator's
+// passphrase. The creator then has 90s to Reveal.
+func Accept(cur realm, id int, seedCommitment string) {
 	noSession("Accept")
 	stake := received(cur)
 	caller := cur.Previous().Address()
@@ -178,19 +190,23 @@ func Accept(cur realm, id int) {
 	if stake != g.Stake {
 		panic("must send exactly " + strconv.FormatInt(g.Stake, 10) + denom)
 	}
+	if !isHexSHA256(seedCommitment) {
+		panic("seedCommitment must be 64 lowercase hex chars (sha256 of your seed)")
+	}
+	useCommitment(caller, seedCommitment)
 	g.Acceptor = caller
-	g.AcceptHeight = runtime.ChainHeight()
+	g.SeedCommitment = seedCommitment
 	g.Status = Playing
 	g.LastMove = time.Now() // Turn stays 0 until Reveal
 }
 
-// Reveal discloses the creator's passphrase, which picks the first mover.
-// It must come within 90s of Accept.
+// Reveal discloses the creator's passphrase. It must come within 90s of
+// Accept; the acceptor then has 90s to RevealSeed.
 func Reveal(cur realm, id int, passphrase string) {
 	noCoins()
 	g := mustGet(id)
-	if g.Status != Playing || g.Turn != 0 {
-		panic("game is not awaiting a reveal")
+	if g.Status != Playing || g.Turn != 0 || g.Revealed {
+		panic("game is not awaiting the creator's reveal")
 	}
 	if cur.Previous().Address() != g.Creator {
 		panic("only the creator can reveal")
@@ -201,11 +217,38 @@ func Reveal(cur realm, id int, passphrase string) {
 	if sha256Hex(passphrase) != g.Commitment {
 		panic("passphrase does not match the commitment")
 	}
-	h := sha256.Sum256([]byte(strings.Join([]string{
-		passphrase, strconv.Itoa(g.ID), g.Creator.String(), g.Acceptor.String(), strconv.FormatInt(g.AcceptHeight, 10),
-	}, "|")))
-	g.Turn = 1 + h[0]&1
+	g.Passphrase = passphrase
+	g.Revealed = true
 	g.LastMove = time.Now()
+}
+
+// RevealSeed discloses the acceptor's seed, which with the creator's
+// passphrase picks the first mover. It must come within 90s of Reveal.
+func RevealSeed(cur realm, id int, seed string) {
+	noCoins()
+	g := mustGet(id)
+	if g.Status != Playing || g.Turn != 0 || !g.Revealed {
+		panic("game is not awaiting the acceptor's seed")
+	}
+	if cur.Previous().Address() != g.Acceptor {
+		panic("only the acceptor can reveal the seed")
+	}
+	if time.Now().After(g.deadline()) {
+		panic("reveal clock ran out")
+	}
+	if sha256Hex(seed) != g.SeedCommitment {
+		panic("seed does not match the commitment")
+	}
+	g.Turn = firstMover(g.Passphrase, seed, g)
+	g.LastMove = time.Now()
+}
+
+// firstMover draws 1 (creator) or 2 (acceptor) from both secrets.
+func firstMover(passphrase, seed string, g *Game) byte {
+	h := sha256.Sum256([]byte(strings.Join([]string{
+		passphrase, seed, strconv.Itoa(g.ID), g.Creator.String(), g.Acceptor.String(),
+	}, "|")))
+	return 1 + h[0]&1
 }
 
 // Play drops a piece in column (1-7). move is the game's move count the
@@ -259,8 +302,12 @@ func ClaimTimeout(cur realm, id int) {
 	if !time.Now().After(g.deadline()) {
 		panic("move clock has not run out")
 	}
-	if g.Turn == 0 { // creator never revealed: forfeit
-		settleWin(cur, g, g.Acceptor)
+	if g.Turn == 0 { // whoever did not reveal in time forfeits
+		if g.Revealed {
+			settleWin(cur, g, g.Creator)
+		} else {
+			settleWin(cur, g, g.Acceptor)
+		}
 		return
 	}
 	if g.Moves == 0 {
@@ -309,8 +356,10 @@ func SetFee(cur realm, amount int64) {
 	noCoins()
 	noSession("SetFee")
 	owner.AssertOwnedBy(cur.Previous().Address())
-	if amount < 0 {
-		panic("fee must not be negative")
+	// Capped so the owner can't raise the fee to take most of a stake by
+	// changing it just before an offer lands.
+	if amount < 0 || amount > maxFee {
+		panic("fee must be between 0 and " + gnot(maxFee))
 	}
 	fee = amount
 }
@@ -325,12 +374,41 @@ func WithdrawFees(cur realm, to address) {
 	send(cur, to, amount)
 }
 
+// TransferOwnership names the next owner, who becomes owner by calling
+// AcceptOwnership. Two steps, so a mistyped or non-canonical address can
+// never strand ownership (and the fees): only an address that signs can
+// accept, and it is recorded as it signs.
 func TransferOwnership(cur realm, newOwner address) {
 	noCoins()
 	noSession("TransferOwnership")
-	if err := owner.TransferOwnership(0, cur, newOwner); err != nil {
-		panic(err)
+	owner.AssertOwnedBy(cur.Previous().Address())
+	if !newOwner.IsValid() {
+		panic("invalid address")
 	}
+	pendingOwner = newOwner
+}
+
+// AcceptOwnership completes a TransferOwnership; only the named address may call it.
+func AcceptOwnership(cur realm) {
+	noCoins()
+	noSession("AcceptOwnership")
+	caller := cur.Previous().Address()
+	if pendingOwner == "" || caller != pendingOwner {
+		panic("no ownership transfer pending for this address")
+	}
+	owner = ownable.NewWithAddress(caller)
+	pendingOwner = ""
+}
+
+// useCommitment records a commitment for addr, refusing one it already used:
+// a revealed secret is public, so reusing it hands the other side the draw.
+// Keyed by address, so nobody can block another player's commitment.
+func useCommitment(addr address, commitment string) {
+	k := addr.String() + ":" + commitment
+	if used.Has(k) {
+		panic("commitment already used: generate a fresh secret")
+	}
+	used.Set(k, true)
 }
 
 // received returns the ugnot sent with a direct user call. OriginSend only
@@ -391,7 +469,7 @@ func settleWin(cur realm, g *Game, winner address) {
 	w := statsOf(winner)
 	w.Games++
 	w.Wins++
-	w.GnotWon += pot - g.Fee
+	w.GnotWon += g.Stake - g.Fee
 	topWins = bump(topWins, winner, int64(w.Wins))
 	topGnot = bump(topGnot, winner, w.GnotWon)
 	statsOf(loser).Games++

@@ -89,5 +89,5 @@ func TestLeadersJSON(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
 	Resign(cross(cur), g.ID)
-	uassert.Equal(t, `{"wins":[{"addr":"`+bob.String()+`","score":1}],"gnot":[{"addr":"`+bob.String()+`","score":`+strconv.FormatInt(2*stake-fee, 10)+`}]}`, LeadersJSON())
+	uassert.Equal(t, `{"wins":[{"addr":"`+bob.String()+`","score":1}],"gnot":[{"addr":"`+bob.String()+`","score":`+strconv.FormatInt(stake-fee, 10)+`}]}`, LeadersJSON())
 }

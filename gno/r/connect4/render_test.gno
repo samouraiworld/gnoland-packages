@@ -48,7 +48,7 @@ func TestGamePageShowsActionsForEveryState(cur realm, t *testing.T) {
 
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
-	Reveal(cross(cur), g.ID, p)
+	revealBoth(cur, g, p)
 	contains(Render(page), "func=Play", "column=7", "func=Resign", "Turn:")
 
 	testing.SetRealm(testing.NewUserRealm(alice))
@@ -149,7 +149,7 @@ func TestBoardIsClickableSVGColumns(cur realm, t *testing.T) {
 
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
-	Reveal(cross(cur), g.ID, p)
+	revealBoth(cur, g, p)
 	first := g.Turn
 	move(cur, g, 3) // first mover drops in column 3
 
@@ -207,7 +207,7 @@ func TestLeaderboardsUpdateOnSettlement(cur realm, t *testing.T) {
 	Resign(cross(cur), g.ID)
 	uassert.Equal(t, 1, len(topWins))
 	uassert.Equal(t, bob, topWins[0].Addr)
-	uassert.Equal(t, 2*stake-fee, topGnot[0].Score)
+	uassert.Equal(t, stake-fee, topGnot[0].Score)
 	uassert.True(t, strings.Contains(Render(""), "| 1 | "+bob.String()+" | 1 |"))
 }
 
@@ -220,5 +220,36 @@ func TestLobbyListsAtMostLobbyRows(cur realm, t *testing.T) {
 	}
 	out := Render("")
 	uassert.Equal(t, lobbyRows, strings.Count(out, "func=Accept"))
-	uassert.True(t, strings.Contains(out, "Showing the first 50 of 53 active games."))
+	uassert.True(t, strings.Contains(out, "Showing the first 50 games."))
+}
+
+func TestLobbySkipsExpiredOffersAndShowsEachFee(cur realm, t *testing.T) {
+	reset()
+	// Expired offers nobody cancelled don't use up the row limit.
+	for i := 0; i < lobbyRows; i++ {
+		testing.SetRealm(testing.NewUserRealm(alice))
+		pay(stake)
+		Offer(cross(cur), "", 1, commit())
+	}
+	testing.SkipHeights(13) // 65s: all expired
+	g := started(cur)
+	expireClock()
+	out := Render("")
+	uassert.True(t, strings.Contains(out, gameLink(pageURL(""), g.ID)), out)
+	uassert.True(t, strings.Contains(out, "clock ran out"), "an expired clock is not shown as negative time")
+	uassert.False(t, strings.Contains(out, "Showing the first"))
+
+	// Each offer shows the fee it was snapshotted with, not the current one.
+	testing.SetRealm(testing.NewUserRealm(admin))
+	pay(0)
+	SetFee(cross(cur), 300_000)
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(stake)
+	Offer(cross(cur), "", 30, commit())
+	testing.SetRealm(testing.NewUserRealm(admin))
+	pay(0)
+	SetFee(cross(cur), 100_000)
+	out = Render("")
+	uassert.True(t, strings.Contains(out, "| 10 GNOT | 0.3 GNOT |"), out)
+	uassert.True(t, strings.Contains(out, "(0.1 GNOT for new offers)"))
 }

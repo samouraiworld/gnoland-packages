@@ -74,6 +74,13 @@ func writeGame(b *strings.Builder, g *Game) {
 	writeNum(b, "fee", g.Fee)
 	writeNum(b, "expiresAt", g.ExpiresAt.Unix())
 	writeStr(b, "commitment", g.Commitment)
+	writeStr(b, "seedCommitment", g.SeedCommitment)
+	// revealed: the creator's passphrase is out; with turn 0 the game waits for RevealSeed.
+	if g.Revealed {
+		b.WriteString(`,"revealed":true`)
+	} else {
+		b.WriteString(`,"revealed":false`)
+	}
 	b.WriteString(`,"board":"`)
 	for c := 0; c < cols; c++ {
 		for r := 0; r < rows; r++ {

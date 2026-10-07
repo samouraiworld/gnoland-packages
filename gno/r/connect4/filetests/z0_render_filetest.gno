@@ -37,7 +37,7 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	testing.SetOriginSend(stake)
 	testing.IssueCoins(c4, stake)
-	connect4.Accept(cross(cur), g1)
+	connect4.Accept(cross(cur), g1, commit("acceptor seed"))
 
 	// Render runs as the realm itself, as it does under gnoweb.
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/samcrew/connect4"))
@@ -57,15 +57,15 @@ func main(cur realm) {
 // Output:
 // # Connect 4
 //
-// Both players stake the same amount; the winner takes the pot minus a 0.1 GNOT fee. 90s per move: run out and you forfeit. If the first mover never moves, both stakes are refunded.
+// Both players stake the same amount; the winner takes the pot minus the house fee shown on each offer (0.1 GNOT for new offers). 90s per move: run out and you forfeit. If the first mover never moves, both stakes are refunded.
 //
 // **[Post an offer](/r/samcrew/connect4:new)** · open a game below to play it
 //
 // ## Open offers
 //
-// | Game | Stake | Creator | For | Expires in | |
-// |---|---|---|---|---|---|
-// | [#2](/r/samcrew/connect4:game/2) | 5 GNOT | g1vdshymmvta047h6lta047h6lta047h6l2asz94 | g1vfhkyh6lta047h6lta047h6lta047h6l03vdhu | 5m0s | [Accept](/r/samcrew/connect4$help&func=Accept&.send=5000000ugnot&id=2) |
+// | Game | Stake | Fee | Creator | For | Expires in | |
+// |---|---|---|---|---|---|---|
+// | [#2](/r/samcrew/connect4:game/2) | 5 GNOT | 0.1 GNOT | g1vdshymmvta047h6lta047h6lta047h6l2asz94 | g1vfhkyh6lta047h6lta047h6lta047h6l03vdhu | 5m0s | [Accept](/r/samcrew/connect4$help&func=Accept&.send=5000000ugnot&id=2&seedCommitment=) |
 //
 // ## Live games
 //
@@ -114,7 +114,7 @@ func main(cur realm) {
 //
 // Open offer for g1vfhkyh6lta047h6lta047h6lta047h6l03vdhu, expires in 5m0s.
 //
-// **[Accept for 5 GNOT](/r/samcrew/connect4$help&func=Accept&.send=5000000ugnot&id=2)**
+// **[Accept for 5 GNOT](/r/samcrew/connect4$help&func=Accept&.send=5000000ugnot&id=2&seedCommitment=)** with the sha256 of a fresh random seed (`openssl rand -hex 32`). Keep the seed: you reveal it after the creator, within 90s, or forfeit.
 //
 // [Cancel offer](/r/samcrew/connect4$help&func=Cancel&id=2) (creator)
 //
@@ -137,7 +137,7 @@ func main(cur realm) {
 //
 // ## Ready
 //
-// Stake 12.5 GNOT, open to anyone for 10 min.
+// Stake 12.5 GNOT, open to anyone for 10 min, commitment `5fb8d3d0c4f3b0fe7ab6ab1f7eda42c6e2de0c3c1d4a6c5e3d0f2f5d0e4f5a6b`. Check it is the sha256 of your own passphrase before signing.
 //
 // **[Post offer for 12.5 GNOT](/r/samcrew/connect4$help&func=Offer&.send=12500000ugnot&commitment=5fb8d3d0c4f3b0fe7ab6ab1f7eda42c6e2de0c3c1d4a6c5e3d0f2f5d0e4f5a6b&opponent=&validFor=10)**
 //

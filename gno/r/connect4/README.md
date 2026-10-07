@@ -27,37 +27,38 @@ Two platform facts shape the design:
   at least one move, the player on turn forfeits. Anyone can call
   `ClaimTimeout`, so bystanders can settle stuck games. A late `Play` panics
   rather than settling, keeping one settlement path.
-- **First mover by commit-reveal.** `Offer` takes `commitment`, the lowercase
-  hex `sha256(passphrase)` (e.g. `printf %s 'pass phrase' | shasum -a 256`);
-  commitments need not be unique. After `Accept` the game
-  waits (`Turn = 0`, `Play` rejected) for the creator to `Reveal(id,
-  passphrase)` within 90s; the first mover is the low bit of
-  `sha256(passphrase|id|creator|acceptor|acceptHeight)`, `acceptHeight` being
-  the block height of `Accept`. Without it a creator offering to a named
-  opponent knows every input but the passphrase when committing, and can
-  grind passphrases offline until it moves first (a known edge in Connect 4).
-  The acceptor cannot know the outcome before accepting and cannot re-roll
-  after. The creator knows it
-  before revealing, so not revealing in time forfeits: `ClaimTimeout` then
-  pays the acceptor as a win. The passphrase must be unguessable, since the
-  commitment is public, and fresh per offer, since a revealed passphrase
-  makes any later game using it predictable; the lobby says both. Reuse only
-  hurts the reusing creator, so it is not rejected (rejecting it also let
-  anyone block an offer by front-running its commitment).
+- **First mover by two-sided commit-reveal.** `Offer` takes `commitment`,
+  the lowercase hex `sha256(passphrase)`; `Accept` takes `seedCommitment`,
+  the same for the acceptor's seed. The game then waits (`Turn = 0`, `Play`
+  rejected) for the creator's `Reveal(id, passphrase)` within 90s of Accept,
+  then the acceptor's `RevealSeed(id, seed)` within 90s of that. The first
+  mover is the low bit of `sha256(passphrase|seed|id|creator|acceptor)`.
+  When a player commits, the other side's secret is still hidden, so neither
+  can grind for an outcome; once revealed, a secret can't change. The only
+  way out is not revealing, which forfeits: `ClaimTimeout` pays the other
+  player as a win. A pending Accept shows only a hash, so a creator watching
+  the mempool learns nothing it could cancel on.
+- **Commitments are one-use per address.** A revealed secret is public, so
+  reusing it would let the other side compute the draw. Reuse is refused per
+  address (creator or acceptor), never globally, so nobody can block another
+  player's offer by posting its commitment first.
 - **Fee** is a flat 0.1 GNOT (100,000 ugnot) per decisive game (one with a
-  winner), adjustable by the owner and snapshotted per game at `Offer`, so a
-  live game's terms never change. `Offer` requires stake > fee so a winner
-  always profits. Draws and void games pay no fee. Owner (`p/nt/ownable/v0`)
-  can `SetFee`, `WithdrawFees`, `TransferOwnership`; it is whoever deploys
-  the realm (`init` with an `IsUserCall()` previous), so the deploying
-  multisig owns it with no address baked into the code. The owner can only
-  withdraw collected fees, never stakes.
+  winner), adjustable by the owner up to 0.5 GNOT (half the minimum stake)
+  and snapshotted per game at `Offer`, so a live game's terms never change;
+  the cap stops the owner raising it to take most of a stake just before an
+  offer lands. Draws and void games pay no fee. The lobby shows each offer's
+  own fee. The owner (`p/nt/ownable/v0`) can `SetFee` and `WithdrawFees`
+  (collected fees only, never stakes); it is whoever deploys the realm
+  (`init` with an `IsUserCall()` previous), so the deploying multisig owns it
+  with no address baked into the code. Ownership moves in two steps,
+  `TransferOwnership(newOwner)` then `AcceptOwnership()` by that address, so
+  a mistyped or non-canonical spelling can never strand ownership and fees.
 - **Stale moves.** `Play(id, column, move)` takes the move count the player
   saw and refuses any other. A client that re-sends a move whose outcome it
   could not see (a dropped response) cannot have it land on a later turn.
 - **Session keys.** Calls signed by a tm2 account session key (gno #5307;
-  `runtime.GetSessionInfo`) may `Play`, `Reveal`, `ClaimTimeout` and
-  `Cancel` only. Session allow-paths are per realm, not per function, and a
+  `runtime.GetSessionInfo`) may `Play`, `Reveal`, `RevealSeed`,
+  `ClaimTimeout` and `Cancel` only. Session allow-paths are per realm, not per function, and a
   session's spend limit counts gas and sent coins but not what a call
   forfeits: a stolen session key could otherwise `Resign` every live game.
   `Offer`/`Accept` (stakes) and the owner functions need the account's own
@@ -69,7 +70,8 @@ Two platform facts shape the design:
   `Accept` panics if coins are sent, so nothing gets stuck in the realm.
 - **Payouts are pushed** with a RealmSend banker inside the settling tx, after
   state is updated. Native coin sends run no callee code.
-- **Leaderboards** (wins, total ugnot won) update only on Won/Draw, so void
+- **Leaderboards** (wins, net ugnot won: the opponent's stake minus the
+  fee) update only on Won/Draw, so void
   or cancelled games cannot farm stats. The two top-10 boards are kept at
   settlement (`bump`), so Render never walks every player's stats.
 - An `active` tree holds only Open/Playing games so the lobby render cost does
@@ -81,11 +83,16 @@ Two platform facts shape the design:
 - First mover from a hash computed in `Accept` (block height, time, ids).
   Rejected: a tx can carry several messages and is atomic, so an acceptor can
   send `[Accept, Play]` and let the whole tx revert whenever the pick goes
-  against them, then retry next block. `IsUserCall()` does not prevent this;
-  it only rules out `maketx run`, not multi-message txs. Any randomness
-  settled inside the accepting tx has the same problem.
-- Commit-reveal by both players, or a helper app that manages secrets: fairer
-  against a weak passphrase, but an extra tx or off-chain component per game.
+  against them, then retry next block.
+- Creator-only commit-reveal, with the `Accept` block height mixed in (the
+  first hardened version). Rejected in review: a short private offer can only
+  be accepted at about 12-18 heights, so a creator can grind one passphrase
+  that moves first at all of them (about 2^18 tries).
+- An acceptor seed sent in clear with `Accept`. Rejected: the creator sees it
+  in the mempool and could cancel, or accept with another account, before
+  the Accept lands whenever the draw goes against it.
+- The creator picking the first mover in the offer, or a two-game match with
+  each side moving first once: no randomness at all, but a different game.
 
 - Matchmaking queue by stake tier: faster pairing, but no browsable lobby and
   it pairs people with idle players.
@@ -101,24 +108,25 @@ Two platform facts shape the design:
 - Clocks are only as precise as block production: a move can land a few
   seconds past 90s if no block was produced in between. Symmetric for both
   players.
-- A weak creator passphrase can be brute-forced offline from the public
-  commitment, letting an acceptor take only offers where they move first.
-  This cannot be enforced on-chain; the lobby warns creators.
-- Each game needs an extra `Reveal` tx from the creator within 90s of accept.
+- A weak secret can be brute-forced offline from its public commitment,
+  letting the other side steer the draw. This cannot be enforced on-chain;
+  the pages ask for `openssl rand -hex 32`, and Memba generates 32 random
+  bytes for both.
+- Each game needs two extra txs before the first move, `Reveal` and
+  `RevealSeed`, each within 90s; both players must stay online until then.
 - Self-play with an alt account inflates wins but costs the fee.
 - A stolen session key can still play bad moves, one per turn, in the
   owner's live games. That is inherent to signing moves without the wallet;
   the client keeps sessions short and bounded.
-- With the accept height in the draw, an acceptor who brute-forced a weak
-  passphrase can choose the block it accepts in. The lobby asks for a random
-  passphrase (`openssl rand -hex 32`); Memba generates 32 random bytes.
 
 ## Security review (before mainnet)
 
 An audit against `docs/resources/gno-ai-contract-review.md`, the payment
-guidance in `effective-gno.md` and `misc/audit-pattern-harness` led to the
-accept-height draw, stale-move check, session-key refusals, settlement-time
-leaderboards, the capped lobby and the deployer-owner above. Confirmed sound:
+guidance in `effective-gno.md` and `misc/audit-pattern-harness`, then two
+reviews of this repository's PR, led to the two-sided draw, one-use
+commitments, the stale-move check, session-key refusals, the fee cap,
+two-step ownership, settlement-time leaderboards, the capped lobby and the
+deployer-owner above. Confirmed sound:
 the `IsUserCall()` + `OriginSend()` payment pair, no exported pointers or
 callbacks, Render writing only validated addresses and formatted numbers,
 fee < stake per game, exact refunds, and `Play` (until the deadline) and
@@ -128,7 +136,7 @@ crossing functions.
 
 ## Read accessors
 
-`GameJSON(id)`, `ActiveJSON(offset, limit)` and `LeadersJSON()` (the two top-10 boards) return hand-built JSON for
+`GameJSON(id)` (with `seedCommitment` and `revealed`), `ActiveJSON(offset, limit)` and `LeadersJSON()` (the two top-10 boards) return hand-built JSON for
 clients (Memba's Arcade) that read over `vm/qeval` instead of scraping
 `Render`. Each response carries `now`, the block time, so clients count the
 90s clock in chain time. The board is a 42-char column-major string. Strings

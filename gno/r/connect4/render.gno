@@ -72,37 +72,35 @@ func renderLobby() string {
 	now := time.Now()
 	base := pageURL("")
 	var open, live strings.Builder
+	// Only rows actually written count toward lobbyRows: expired offers nobody
+	// cancelled must not crowd out live games.
 	shown := 0
 	active.Iterate("", "", func(_ string, v any) bool {
-		if shown == lobbyRows {
-			return true
-		}
-		shown++
 		g := v.(*Game)
 		switch {
 		case g.Status == Open && now.Before(g.ExpiresAt):
-			open.WriteString("| " + gameLink(base, g.ID) + " | " + gnot(g.Stake) + " | " + g.Creator.String() + " | " + openTo(g) +
+			open.WriteString("| " + gameLink(base, g.ID) + " | " + gnot(g.Stake) + " | " + gnot(g.Fee) + " | " + g.Creator.String() + " | " + openTo(g) +
 				" | " + remaining(g.ExpiresAt.Sub(now)) + " | [Accept](" + acceptURL(g) + ") |\n")
 		case g.Status == Playing:
-			turn := g.player(g.Turn).String()
-			if g.Turn == 0 {
-				turn = g.Creator.String() + " (reveal)"
-			}
-			live.WriteString("| " + gameLink(base, g.ID) + " | " + gnot(2*g.Stake) + " | " + turn + " | " + remaining(g.deadline().Sub(now)) + " |\n")
+			live.WriteString("| " + gameLink(base, g.ID) + " | " + gnot(2*g.Stake) + " | " + onTurn(g) + " | " + clockLeft(g, now) + " |\n")
+		default:
+			return false
 		}
-		return false
+		shown++
+		return shown == lobbyRows
 	})
 
 	var b strings.Builder
 	b.WriteString("# Connect 4\n\n")
-	b.WriteString("Both players stake the same amount; the winner takes the pot minus a " + gnot(fee) + " fee. " +
+	b.WriteString("Both players stake the same amount; the winner takes the pot minus the house fee shown on each offer " +
+		"(" + gnot(fee) + " for new offers). " +
 		"90s per move: run out and you forfeit. If the first mover never moves, both stakes are refunded.\n\n")
 	b.WriteString("**[Post an offer](" + base + ":new)** · open a game below to play it\n\n")
 	b.WriteString("## Open offers\n\n")
 	if open.Len() == 0 {
 		b.WriteString("No open offers.\n\n")
 	} else {
-		b.WriteString("| Game | Stake | Creator | For | Expires in | |\n|---|---|---|---|---|---|\n" + open.String() + "\n")
+		b.WriteString("| Game | Stake | Fee | Creator | For | Expires in | |\n|---|---|---|---|---|---|---|\n" + open.String() + "\n")
 	}
 	b.WriteString("## Live games\n\n")
 	if live.Len() == 0 {
@@ -110,8 +108,8 @@ func renderLobby() string {
 	} else {
 		b.WriteString("| Game | Pot | Turn | Time left |\n|---|---|---|---|\n" + live.String() + "\n")
 	}
-	if n := active.Size(); n > lobbyRows {
-		b.WriteString("Showing the first " + strconv.Itoa(lobbyRows) + " of " + strconv.Itoa(n) + " active games.\n\n")
+	if shown == lobbyRows {
+		b.WriteString("Showing the first " + strconv.Itoa(lobbyRows) + " games.\n\n")
 	}
 	b.WriteString("## Most games won\n\n")
 	b.WriteString(leaderboard(topWins, func(v int64) string { return strconv.FormatInt(v, 10) }))
@@ -180,7 +178,8 @@ func renderNew(query string) string {
 	if opponent != "" {
 		who = opponent.String()
 	}
-	b.WriteString("Stake " + gnot(stake) + ", open to " + who + " for " + strconv.Itoa(validFor) + " min.\n\n")
+	b.WriteString("Stake " + gnot(stake) + ", open to " + who + " for " + strconv.Itoa(validFor) + " min, " +
+		"commitment `" + commitment + "`. Check it is the sha256 of your own passphrase before signing.\n\n")
 	b.WriteString("**[Post offer for " + gnot(stake) + "](" + txlink.NewLink("Offer").
 		AddArgs("opponent", opponent.String(), "validFor", strconv.Itoa(validFor), "commitment", commitment).
 		SetSend(strconv.FormatInt(stake, 10)+denom).URL() + ")**\n")
@@ -201,7 +200,8 @@ func renderGame(g *Game) string {
 		cancel := "[Cancel offer](" + txlink.NewLink("Cancel").AddArgs("id", id).URL() + ")"
 		if now.Before(g.ExpiresAt) {
 			b.WriteString("Open offer for " + openTo(g) + ", expires in " + remaining(g.ExpiresAt.Sub(now)) + ".\n\n")
-			b.WriteString("**[Accept for " + gnot(g.Stake) + "](" + acceptURL(g) + ")**\n\n")
+			b.WriteString("**[Accept for " + gnot(g.Stake) + "](" + acceptURL(g) + ")** with the sha256 of a fresh random seed " +
+				"(`openssl rand -hex 32`). Keep the seed: you reveal it after the creator, within 90s, or forfeit.\n\n")
 			b.WriteString(cancel + " (creator)\n")
 		} else {
 			b.WriteString("This offer expired. Anyone can " + cancel + " to refund the creator.\n")
@@ -211,10 +211,18 @@ func renderGame(g *Game) string {
 		claim := "Clock ran out: **[Claim timeout](" + txlink.NewLink("ClaimTimeout").AddArgs("id", id).URL() + ")**\n\n"
 		resign := "[Resign](" + txlink.NewLink("Resign").AddArgs("id", id).URL() + ")\n"
 		if g.Turn == 0 {
-			b.WriteString("Waiting for the creator to reveal the passphrase.\n\n")
-			if left > 0 {
+			if !g.Revealed {
+				b.WriteString("Waiting for the creator to reveal the passphrase.\n\n")
+			} else {
+				b.WriteString("Passphrase revealed. Waiting for the acceptor to reveal the seed.\n\n")
+			}
+			if left >= 0 {
 				b.WriteString("Time left: " + remaining(left) + "\n\n")
-				b.WriteString("**[Reveal](" + txlink.NewLink("Reveal").AddArgs("id", id, "passphrase", "").URL() + ")** (creator)\n\n")
+				if !g.Revealed {
+					b.WriteString("**[Reveal](" + txlink.NewLink("Reveal").AddArgs("id", id, "passphrase", "").URL() + ")** (creator)\n\n")
+				} else {
+					b.WriteString("**[Reveal seed](" + txlink.NewLink("RevealSeed").AddArgs("id", id, "seed", "").URL() + ")** (acceptor)\n\n")
+				}
 			} else {
 				b.WriteString(claim)
 			}
@@ -222,7 +230,7 @@ func renderGame(g *Game) string {
 			break
 		}
 		b.WriteString("Turn: " + [...]string{"", "🔴", "🟡"}[g.Turn] + " " + g.player(g.Turn).String() + "\n\n")
-		if left > 0 {
+		if left >= 0 {
 			b.WriteString("Time left: " + remaining(left) + " · click a column to drop your piece\n\n")
 		} else {
 			b.WriteString(claim)
@@ -292,8 +300,28 @@ func drawColumn(canvas *svg.Canvas, g *Game, win *[cols][rows]bool, c, x int) st
 	return alt
 }
 
+// onTurn names who the game waits for.
+func onTurn(g *Game) string {
+	switch {
+	case g.Turn != 0:
+		return g.player(g.Turn).String()
+	case g.Revealed:
+		return g.Acceptor.String() + " (reveal seed)"
+	}
+	return g.Creator.String() + " (reveal)"
+}
+
+// clockLeft is the time left on the move clock, or "clock ran out". Play is
+// still accepted in the deadline block itself, so zero left is not expired.
+func clockLeft(g *Game, now time.Time) string {
+	if now.After(g.deadline()) {
+		return "clock ran out"
+	}
+	return remaining(g.deadline().Sub(now))
+}
+
 func acceptURL(g *Game) string {
-	return txlink.NewLink("Accept").AddArgs("id", strconv.Itoa(g.ID)).
+	return txlink.NewLink("Accept").AddArgs("id", strconv.Itoa(g.ID), "seedCommitment", "").
 		SetSend(strconv.FormatInt(g.Stake, 10) + denom).URL()
 }
 
