@@ -1,0 +1,34 @@
+# Packages that do not build or pass on the pinned gno (ci/gno-ref.env) yet.
+# ci/gno-test.sh expects each of these to FAIL and errors if one passes, so
+# remove an entry in the same pull request that fixes the package.
+#
+# One cause per line: the package, then the error it is expected to fail on,
+# copied from the `gno test` output (a fixed string, not a pattern). The only
+# cause accepted is a missing import, written in full as
+# `package "<import path>" is not available`; anything shorter or of another
+# kind is refused, so no entry can excuse more than one import. A package may
+# list several causes. It counts as an expected failure only when the output
+# shows every cause listed for it and no other error; a type error, a failing
+# test or one more missing import fails the job. The other lines gno prints
+# because X could not be fetched are accounted for with its cause.
+#
+# Measured with the pinned gno: after a bump, run ci/gno-test.sh and copy the
+# new wording here if it changed.
+
+# Written against an older gno: its imports are the old paths
+# (gno.land/p/demo/tokens/grc20 is now gno.land/p/nt/grc20/v0, see README "Work
+# in progress"), which gnoland-1 does not serve. gno stops at the missing
+# imports before type-checking, so nothing in this package's own code is
+# checked until they are fixed.
+gno/r/payrolls  package "gno.land/p/demo/tokens/grc20" is not available
+gno/r/payrolls  package "gno.land/p/nt/avl" is not available
+gno/r/payrolls  package "gno.land/p/nt/ufmt" is not available
+gno/r/payrolls  package "gno.land/p/nt/testutils" is not available
+gno/r/payrolls  package "gno.land/p/nt/seqid" is not available
+gno/r/payrolls  package "gno.land/p/nt/urequire" is not available
+gno/r/payrolls  package "gno.land/r/demo/defi/grc20reg" is not available
+
+# Builds, but its tests import gno.land/r/tests/vm/test20. gno fetches any
+# import that is not in this repository from rpc.gno.land (gnoland-1), and that
+# test-only realm is not deployed there, so the test setup fails.
+gno/r/subscriptions  package "gno.land/r/tests/vm/test20" is not available
