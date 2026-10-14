@@ -38,10 +38,10 @@ Two platform facts shape the design:
   way out is not revealing, which forfeits: `ClaimTimeout` pays the other
   player as a win. A pending Accept shows only a hash, so a creator watching
   the mempool learns nothing it could cancel on.
-- **Commitments are one-use per address.** A revealed secret is public, so
-  reusing it would let the other side compute the draw. Reuse is refused per
-  address (creator or acceptor), never globally, so nobody can block another
-  player's offer by posting its commitment first.
+- **Use a fresh secret every game.** A revealed secret is public, so reusing
+  it would let the other side compute the draw. The realm does not track used
+  commitments (that would cost every game storage forever): generating a
+  fresh secret is the client's job, and reuse only hurts the one who reuses.
 - **Fee** is a flat 0.1 GNOT (100,000 ugnot) per decisive game (one with a
   winner), adjustable by the owner up to 0.5 GNOT (half the minimum stake)
   and snapshotted per game at `Offer`, so a live game's terms never change.
@@ -74,6 +74,10 @@ Two platform facts shape the design:
 - **Cancel.** The creator may cancel an open offer at any time; anyone may
   once it has expired, so stale offers can be cleared. The refund always goes
   to the creator.
+- **Renew.** The creator may reopen its open offer, expired or not, for
+  1–60 minutes with `Renew(id, validFor)`. It keeps the stake, fee, opponent
+  and commitment (still secret: nobody accepted), so it costs no new storage
+  deposit where a fresh `Offer` would.
 - **Non-payable calls reject coins.** Every function other than `Offer` and
   `Accept` panics if coins are sent, so nothing gets stuck in the realm.
 - **Payouts are pushed** with a RealmSend banker inside the settling tx, after
@@ -131,8 +135,8 @@ Two platform facts shape the design:
 
 An audit against `docs/resources/gno-ai-contract-review.md`, the payment
 guidance in `effective-gno.md` and `misc/audit-pattern-harness`, then two
-reviews of this repository's PR, led to the two-sided draw, one-use
-commitments, the stale-move check, session-key refusals, the fee cap,
+reviews of this repository's PR, led to the two-sided draw, the
+stale-move check, session-key refusals, the fee cap,
 two-step ownership, settlement-time leaderboards, the capped lobby and the
 deployer-owner above. Confirmed sound:
 the `IsUserCall()` + `OriginSend()` payment pair, no exported pointers or

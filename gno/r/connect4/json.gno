@@ -74,7 +74,7 @@ func writeGame(b *strings.Builder, g *Game) {
 	writeStr(b, "acceptor", g.Acceptor.String())
 	writeNum(b, "stake", g.Stake)
 	writeNum(b, "fee", g.Fee)
-	writeNum(b, "expiresAt", g.ExpiresAt.Unix())
+	writeNum(b, "expiresAt", g.expires().Unix())
 	writeStr(b, "commitment", g.Commitment)
 	writeStr(b, "seedCommitment", g.SeedCommitment)
 	// revealed: the creator's passphrase is out; with turn 0 the game waits for RevealSeed.
@@ -86,7 +86,7 @@ func writeGame(b *strings.Builder, g *Game) {
 	b.WriteString(`,"board":"`)
 	for c := 0; c < cols; c++ {
 		for r := 0; r < rows; r++ {
-			b.WriteByte('0' + g.Board[c][r])
+			b.WriteByte('0' + g.Board[c*rows+r])
 		}
 	}
 	b.WriteString(`"`)
@@ -129,15 +129,15 @@ func LeadersJSON() string {
 	return b.String()
 }
 
-func writeLeaders(b *strings.Builder, board []leader) {
+func writeLeaders(b *strings.Builder, r ranking) {
 	b.WriteString("[")
-	for i, l := range board {
+	for i, a := range r.Addrs {
 		if i > 0 {
 			b.WriteString(",")
 		}
 		b.WriteString(`{"addr":`)
-		b.WriteString(strconv.Quote(l.Addr.String()))
-		writeNum(b, "score", l.Score)
+		b.WriteString(strconv.Quote(a.String()))
+		writeNum(b, "score", r.Scores[i])
 		b.WriteString("}")
 	}
 	b.WriteString("]")

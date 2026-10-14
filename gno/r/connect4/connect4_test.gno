@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/ownable/v0"
@@ -26,10 +27,10 @@ var (
 )
 
 func reset() {
-	games, active, stats = avl.Tree{}, avl.Tree{}, avl.Tree{}
+	games, active, stats = nil, avl.Tree{}, avl.Tree{}
 	nextID, fee, feesCollected = 0, 100_000, 0
-	topWins, topGnot = nil, nil
-	used, pendingOwner = avl.Tree{}, ""
+	topWins, topGnot = ranking{}, ranking{}
+	pendingOwner = ""
 	owner = ownable.NewWithAddress(admin)
 	testSession = false
 }
@@ -293,10 +294,10 @@ func TestDrawRefundsBoth(cur realm, t *testing.T) {
 	// four in a row; player 1 owns the last cell.
 	for c := 0; c < cols; c++ {
 		for r := 0; r < rows; r++ {
-			g.Board[c][r] = byte(1 + (c/2+r)%2)
+			g.Board[c*rows+r] = byte(1 + (c/2+r)%2)
 		}
 	}
-	g.Board[6][5] = 0
+	g.Board[6*rows+5] = 0
 	g.Moves, g.Turn = cols*rows-1, 1
 	a, b := balance(alice), balance(bob)
 	move(cur, g, 7)
@@ -450,23 +451,9 @@ func TestCommitmentRejects(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(stake)
 	Offer(cross(cur), "", 10, good, fee)
-	testing.SetRealm(testing.NewUserRealm(carol))
-	pay(stake)
-	Offer(cross(cur), "", 10, good, fee) // another creator may use it: nobody can block anyone's offer
-	testing.SetRealm(testing.NewUserRealm(alice))
-	pay(stake)
-	uassert.AbortsContains(t, cur, "commitment already used", func() { Offer(cross(cur), "", 10, good, fee) })
-
-	// An acceptor can't reuse a seed commitment either, even one used as a passphrase commitment.
 	testing.SetRealm(testing.NewUserRealm(bob))
 	pay(stake)
-	Accept(cross(cur), 1, seedCommit(1))
-	testing.SetRealm(testing.NewUserRealm(bob))
-	pay(stake)
-	uassert.AbortsContains(t, cur, "commitment already used", func() { Accept(cross(cur), 2, seedCommit(1)) })
-	testing.SetRealm(testing.NewUserRealm(bob))
-	pay(stake)
-	uassert.AbortsContains(t, cur, "seedCommitment must be 64 lowercase hex", func() { Accept(cross(cur), 2, "x") })
+	uassert.AbortsContains(t, cur, "seedCommitment must be 64 lowercase hex", func() { Accept(cross(cur), 1, "x") })
 }
 
 // bech32m gives the other checksum of the same address, which IsValid accepts.
@@ -646,17 +633,64 @@ func TestSessionKeysCannotAccept(cur realm, t *testing.T) {
 }
 
 func TestBump(t *testing.T) {
-	var b []leader
+	var b ranking
 	for i := 0; i < 12; i++ {
-		b = bump(b, testutils.TestAddress(strconv.Itoa(i)), int64(i))
+		b.bump(testutils.TestAddress(strconv.Itoa(i)), int64(i))
 	}
-	uassert.Equal(t, topN, len(b))
-	uassert.Equal(t, int64(11), b[0].Score)
-	uassert.Equal(t, int64(2), b[9].Score)
-	b = bump(b, testutils.TestAddress("5"), 20) // already listed: moves up, not duplicated
-	uassert.Equal(t, topN, len(b))
-	uassert.Equal(t, testutils.TestAddress("5"), b[0].Addr)
-	b = bump(b, testutils.TestAddress("late"), 11) // ties keep the earlier holder first
-	uassert.Equal(t, testutils.TestAddress("11"), b[1].Addr)
-	uassert.Equal(t, testutils.TestAddress("late"), b[2].Addr)
+	uassert.Equal(t, topN, len(b.Addrs))
+	uassert.Equal(t, topN, len(b.Scores))
+	uassert.Equal(t, int64(11), b.Scores[0])
+	uassert.Equal(t, int64(2), b.Scores[9])
+	b.bump(testutils.TestAddress("5"), 20) // already listed: moves up, not duplicated
+	uassert.Equal(t, topN, len(b.Addrs))
+	uassert.Equal(t, testutils.TestAddress("5"), b.Addrs[0])
+	uassert.Equal(t, int64(20), b.Scores[0])
+	b.bump(testutils.TestAddress("late"), 11) // ties keep the earlier holder first
+	uassert.Equal(t, testutils.TestAddress("11"), b.Addrs[1])
+	uassert.Equal(t, testutils.TestAddress("late"), b.Addrs[2])
+}
+
+func TestRenew(cur realm, t *testing.T) {
+	reset()
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(stake)
+	id := Offer(cross(cur), "", 10, commit(), fee)
+	g := get(id)
+	g.ExpiresAt = time.Now().Add(-time.Second).UnixNano()
+
+	testing.SetRealm(testing.NewUserRealm(bob))
+	pay(stake)
+	uassert.AbortsContains(t, cur, "offer expired", func() { Accept(cross(cur), id, seedCommit(id)) })
+	testing.SetRealm(testing.NewUserRealm(bob))
+	pay(0)
+	uassert.AbortsContains(t, cur, "only the creator", func() { Renew(cross(cur), id, 10) })
+	testing.SetRealm(testing.NewUserRealm(alice))
+	uassert.AbortsContains(t, cur, "validFor must be", func() { Renew(cross(cur), id, 61) })
+
+	testing.SetRealm(testing.NewUserRealm(alice))
+	Renew(cross(cur), id, 10)
+	uassert.Equal(t, 1, nextID) // same game, no new one
+	testing.SetRealm(testing.NewUserRealm(bob))
+	pay(stake)
+	Accept(cross(cur), id, seedCommit(id))
+	uassert.Equal(t, int(Playing), int(g.Status))
+
+	testing.SetRealm(testing.NewUserRealm(alice))
+	pay(0)
+	uassert.AbortsContains(t, cur, "game is not open", func() { Renew(cross(cur), id, 10) })
+}
+
+func TestGameIndexCrossesPagesAndBooks(t *testing.T) {
+	reset()
+	for i := 1; i <= 4100; i++ {
+		nextID = i
+		store(&Game{ID: i})
+	}
+	for _, id := range []int{1, 64, 65, 4096, 4097, 4100} {
+		uassert.Equal(t, id, get(id).ID)
+	}
+	uassert.Equal(t, 2, len(games))
+	uassert.True(t, get(0) == nil)
+	uassert.True(t, get(4101) == nil)
+	uassert.True(t, get(-1) == nil)
 }

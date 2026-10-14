@@ -78,9 +78,9 @@ func renderLobby() string {
 	active.Iterate("", "", func(_ string, v any) bool {
 		g := v.(*Game)
 		switch {
-		case g.Status == Open && now.Before(g.ExpiresAt):
+		case g.Status == Open && now.Before(g.expires()):
 			open.WriteString("| " + gameLink(base, g.ID) + " | " + gnot(g.Stake) + " | " + gnot(g.Fee) + " | " + g.Creator.String() + " | " + openTo(g) +
-				" | " + remaining(g.ExpiresAt.Sub(now)) + " | [Accept](" + acceptURL(g) + ") |\n")
+				" | " + remaining(g.expires().Sub(now)) + " | [Accept](" + acceptURL(g) + ") |\n")
 		case g.Status == Playing:
 			live.WriteString("| " + gameLink(base, g.ID) + " | " + gnot(2*g.Stake) + " | " + onTurn(g) + " | " + clockLeft(g, now) + " |\n")
 		default:
@@ -200,13 +200,14 @@ func renderGame(g *Game) string {
 	switch g.Status {
 	case Open:
 		cancel := "[Cancel offer](" + txlink.NewLink("Cancel").AddArgs("id", id).URL() + ")"
-		if now.Before(g.ExpiresAt) {
-			b.WriteString("Open offer for " + openTo(g) + ", expires in " + remaining(g.ExpiresAt.Sub(now)) + ".\n\n")
+		if now.Before(g.expires()) {
+			b.WriteString("Open offer for " + openTo(g) + ", expires in " + remaining(g.expires().Sub(now)) + ".\n\n")
 			b.WriteString("**[Accept for " + gnot(g.Stake) + "](" + acceptURL(g) + ")** with the sha256 of a fresh random seed " +
 				"(`openssl rand -hex 32`). Keep the seed: you reveal it after the creator, within 90s, or forfeit.\n\n")
 			b.WriteString(cancel + " (creator)\n")
 		} else {
-			b.WriteString("This offer expired. Anyone can " + cancel + " to refund the creator.\n")
+			renew := "[Renew](" + txlink.NewLink("Renew").AddArgs("id", id, "validFor", "10").URL() + ")"
+			b.WriteString("This offer expired. The creator can " + renew + " it; anyone can " + cancel + " to refund the creator.\n")
 		}
 	case Playing:
 		left := g.deadline().Sub(now)
@@ -289,7 +290,7 @@ func drawColumn(canvas *svg.Canvas, g *Game, win *[cols][rows]bool, c, x int) st
 	canvas.Append(bg, svg.NewText(x+cellPx/2-4, 15, strconv.Itoa(c+1), hole))
 	alt := "column " + strconv.Itoa(c+1) + ":"
 	for r := 0; r < rows; r++ {
-		disc := svg.NewCircle(x+cellPx/2, headerPx+(rows-1-r)*cellPx+cellPx/2, cellPx/2-5, pieceColor[g.Board[c][r]])
+		disc := svg.NewCircle(x+cellPx/2, headerPx+(rows-1-r)*cellPx+cellPx/2, cellPx/2-5, pieceColor[g.Board[c*rows+r]])
 		switch {
 		case win[c][r]:
 			disc.Attr.Stroke, disc.Attr.StrokeWidth = winStroke, "5"
@@ -297,7 +298,7 @@ func drawColumn(canvas *svg.Canvas, g *Game, win *[cols][rows]bool, c, x int) st
 			disc.Attr.Stroke, disc.Attr.StrokeWidth = lastMoveStroke, "3"
 		}
 		canvas.Append(disc)
-		alt += " " + pieceName[g.Board[c][r]]
+		alt += " " + pieceName[g.Board[c*rows+r]]
 	}
 	return alt
 }
@@ -358,14 +359,14 @@ func parseGNOT(s string) (int64, bool) {
 }
 
 // leaderboard renders a board kept at settlement (topWins, topGnot).
-func leaderboard(board []leader, format func(int64) string) string {
-	if len(board) == 0 {
+func leaderboard(r ranking, format func(int64) string) string {
+	if len(r.Addrs) == 0 {
 		return "No finished games yet.\n\n"
 	}
 	var b strings.Builder
 	b.WriteString("| # | Player | |\n|---|---|---|\n")
-	for i, r := range board {
-		b.WriteString("| " + strconv.Itoa(i+1) + " | " + r.Addr.String() + " | " + format(r.Score) + " |\n")
+	for i, a := range r.Addrs {
+		b.WriteString("| " + strconv.Itoa(i+1) + " | " + a.String() + " | " + format(r.Scores[i]) + " |\n")
 	}
 	b.WriteString("\n")
 	return b.String()

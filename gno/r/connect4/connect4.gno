@@ -10,7 +10,9 @@
 // grind for an outcome, and once its secret is revealed nobody can change it;
 // the only way out is to not reveal, which forfeits. Watching a pending Accept
 // tells the creator nothing either, so it cannot cancel unfavourable games.
-// Each address may use a commitment once: a reused secret is already public.
+// A revealed secret is public: reusing one hands the other side the draw, so
+// clients must generate a fresh secret for every game. The realm does not
+// track used commitments, as that costs every game storage forever.
 //
 // Calls signed by an account session key (Quick play) may only Play, Reveal,
 // RevealSeed, ClaimTimeout and Cancel: a stolen session key must not resign
@@ -68,7 +70,7 @@ type Game struct {
 	Acceptor  address
 	Stake     int64 // ugnot, per player
 	Fee       int64 // ugnot house fee, fixed at offer time
-	ExpiresAt time.Time
+	ExpiresAt int64 // unix nanoseconds: a time.Time field is a separate stored object
 	// Commitment is the lowercase hex sha256 of the creator's passphrase;
 	// SeedCommitment that of the acceptor's seed, given with Accept.
 	Commitment     string
@@ -82,7 +84,7 @@ type Game struct {
 	Moves    int
 	LastCol  int // column and row of the last piece dropped, valid if Moves > 0
 	LastRow  int
-	LastMove time.Time
+	LastMove int64 // unix nanoseconds
 	Status   Status
 	Winner   address
 }
@@ -93,15 +95,14 @@ type Stats struct {
 }
 
 var (
-	games         avl.Tree // key(id) -> *Game
+	games         []*book  // every game ever offered, by id: see store
 	active        avl.Tree // key(id) -> *Game, only Open and Playing
-	stats         avl.Tree // address -> *Stats
+	stats         avl.Tree // address -> Stats (a value: a pointer would be one more stored object)
 	nextID        int
 	fee           int64 = 100_000 // ugnot per decisive game
 	feesCollected int64
 	owner         *ownable.Ownable // the deployer; nil (no owner) if deployed some other way
 	pendingOwner  address          // set by TransferOwnership, made owner by AcceptOwnership
-	used          avl.Tree         // address + ":" + commitment -> true, both kinds
 	// testSession makes tests see every call as session-signed (no test hook sets one).
 	testSession bool
 )
@@ -131,7 +132,6 @@ func Offer(cur realm, opponent address, validFor int, commitment string, maxFee 
 	if fee > maxFee {
 		panic("the house fee is " + gnot(fee) + ", above your maximum of " + gnot(maxFee))
 	}
-	useCommitment(caller, commitment)
 	nextID++
 	g := &Game{
 		ID:        nextID,
@@ -139,11 +139,11 @@ func Offer(cur realm, opponent address, validFor int, commitment string, maxFee 
 		Opponent:  opponent,
 		Stake:     stake,
 		Fee:       fee,
-		ExpiresAt: time.Now().Add(time.Duration(validFor) * time.Minute),
+		ExpiresAt: time.Now().Add(time.Duration(validFor) * time.Minute).UnixNano(),
 
 		Commitment: commitment,
 	}
-	games.Set(key(g.ID), g)
+	store(g)
 	active.Set(key(g.ID), g)
 	return g.ID
 }
@@ -183,7 +183,7 @@ func Accept(cur realm, id int, seedCommitment string) {
 	if g.Status != Open {
 		panic("game is not open")
 	}
-	if !time.Now().Before(g.ExpiresAt) {
+	if !time.Now().Before(g.expires()) {
 		panic("offer expired")
 	}
 	if caller == g.Creator {
@@ -198,11 +198,10 @@ func Accept(cur realm, id int, seedCommitment string) {
 	if !isHexSHA256(seedCommitment) {
 		panic("seedCommitment must be 64 lowercase hex chars (sha256 of your seed)")
 	}
-	useCommitment(caller, seedCommitment)
 	g.Acceptor = caller
 	g.SeedCommitment = seedCommitment
 	g.Status = Playing
-	g.LastMove = time.Now() // Turn stays 0 until Reveal
+	g.LastMove = time.Now().UnixNano() // Turn stays 0 until Reveal
 }
 
 // Reveal discloses the creator's passphrase. It must come within 90s of
@@ -227,7 +226,7 @@ func Reveal(cur realm, id int, passphrase string) {
 	}
 	g.Passphrase = passphrase
 	g.Revealed = true
-	g.LastMove = time.Now()
+	g.LastMove = time.Now().UnixNano()
 }
 
 // RevealSeed discloses the acceptor's seed, which with the creator's
@@ -248,7 +247,7 @@ func RevealSeed(cur realm, id int, seed string) {
 		panic("seed does not match the commitment")
 	}
 	g.Turn = firstMover(g.Passphrase, seed, g)
-	g.LastMove = time.Now()
+	g.LastMove = time.Now().UnixNano()
 }
 
 // firstMover draws 1 (creator) or 2 (acceptor) from both secrets.
@@ -296,7 +295,7 @@ func Play(cur realm, id, column, move int) {
 		settleDraw(cur, g)
 	default:
 		g.Turn = 3 - g.Turn
-		g.LastMove = time.Now()
+		g.LastMove = time.Now().UnixNano()
 	}
 }
 
@@ -351,11 +350,31 @@ func Cancel(cur realm, id int) {
 	if g.Status != Open {
 		panic("game is not open")
 	}
-	if cur.Previous().Address() != g.Creator && time.Now().Before(g.ExpiresAt) {
+	if cur.Previous().Address() != g.Creator && time.Now().Before(g.expires()) {
 		panic("only the creator can cancel an unexpired offer")
 	}
 	finish(g, Cancelled)
 	send(cur, g.Creator, g.Stake)
+}
+
+// Renew reopens the caller's open offer for validFor minutes from now,
+// expired or not. It keeps the stake, fee, opponent and commitment (still
+// secret, as nobody accepted), so it costs no new storage where a fresh
+// Offer would.
+func Renew(cur realm, id, validFor int) {
+	noCoins()
+	noSession("Renew")
+	g := mustGet(id)
+	if g.Status != Open {
+		panic("game is not open")
+	}
+	if cur.Previous().Address() != g.Creator {
+		panic("only the creator can renew an offer")
+	}
+	if validFor < 1 || validFor > maxOfferTTL {
+		panic("validFor must be between 1 and 60 minutes")
+	}
+	g.ExpiresAt = time.Now().Add(time.Duration(validFor) * time.Minute).UnixNano()
 }
 
 // SetFee changes the flat house fee, in ugnot, for new offers. Games already
@@ -406,17 +425,6 @@ func AcceptOwnership(cur realm) {
 	}
 	owner = ownable.NewWithAddress(caller)
 	pendingOwner = ""
-}
-
-// useCommitment records a commitment for addr, refusing one it already used:
-// a revealed secret is public, so reusing it hands the other side the draw.
-// Keyed by address, so nobody can block another player's commitment.
-func useCommitment(addr address, commitment string) {
-	k := addr.String() + ":" + commitment
-	if used.Has(k) {
-		panic("commitment already used: generate a fresh secret")
-	}
-	used.Set(k, true)
 }
 
 // received returns the ugnot sent with a direct user call. OriginSend only
@@ -478,9 +486,12 @@ func settleWin(cur realm, g *Game, winner address) {
 	w.Games++
 	w.Wins++
 	w.GnotWon += g.Stake - g.Fee
-	topWins = bump(topWins, winner, int64(w.Wins))
-	topGnot = bump(topGnot, winner, w.GnotWon)
-	statsOf(loser).Games++
+	stats.Set(winner.String(), w)
+	topWins.bump(winner, int64(w.Wins))
+	topGnot.bump(winner, w.GnotWon)
+	l := statsOf(loser)
+	l.Games++
+	stats.Set(loser.String(), l)
 	send(cur, winner, pot-g.Fee)
 }
 
@@ -490,6 +501,7 @@ func settleDraw(cur realm, g *Game) {
 		s := statsOf(p)
 		s.Games++
 		s.Draws++
+		stats.Set(p.String(), s)
 		send(cur, p, g.Stake)
 	}
 }
@@ -500,40 +512,45 @@ func settleVoid(cur realm, g *Game) {
 	send(cur, g.Acceptor, g.Stake)
 }
 
-// leader is one leaderboard row. The boards are kept at settlement so Render
-// never walks every player's stats.
-type leader struct {
-	Addr  address
-	Score int64
+// ranking is a leaderboard, highest first, at most topN: Addrs[i] has
+// Scores[i]. Kept at settlement so Render never walks every player's stats.
+// Two slices rather than a slice of rows: each row struct would be one more
+// stored object.
+type ranking struct {
+	Addrs  []address
+	Scores []int64
 }
 
-var topWins, topGnot []leader // highest first, at most topN
+var topWins, topGnot ranking
 
 const topN = 10
 
-// bump moves addr to its new score in board. Scores only grow, so a player
-// already listed can only move up; ties keep the earlier holder first.
-func bump(board []leader, addr address, score int64) []leader {
-	for i, l := range board {
-		if l.Addr == addr {
-			board = append(board[:i], board[i+1:]...)
+// bump moves addr to its new score. Scores only grow, so a player already
+// listed can only move up; ties keep the earlier holder first.
+func (r *ranking) bump(addr address, score int64) {
+	for i, a := range r.Addrs {
+		if a == addr {
+			r.Addrs = append(r.Addrs[:i], r.Addrs[i+1:]...)
+			r.Scores = append(r.Scores[:i], r.Scores[i+1:]...)
 			break
 		}
 	}
-	i := len(board)
-	for i > 0 && board[i-1].Score < score {
+	i := len(r.Scores)
+	for i > 0 && r.Scores[i-1] < score {
 		i--
 	}
 	if i >= topN {
-		return board
+		return
 	}
-	board = append(board, leader{})
-	copy(board[i+1:], board[i:])
-	board[i] = leader{addr, score}
-	if len(board) > topN {
-		board = board[:topN]
+	r.Addrs = append(r.Addrs, "")
+	copy(r.Addrs[i+1:], r.Addrs[i:])
+	r.Addrs[i] = addr
+	r.Scores = append(r.Scores, 0)
+	copy(r.Scores[i+1:], r.Scores[i:])
+	r.Scores[i] = score
+	if len(r.Addrs) > topN {
+		r.Addrs, r.Scores = r.Addrs[:topN], r.Scores[:topN]
 	}
-	return board
 }
 
 func finish(g *Game, s Status) {
@@ -556,15 +573,16 @@ func (g *Game) player(turn byte) address {
 	return g.Acceptor
 }
 
-func (g *Game) deadline() time.Time { return g.LastMove.Add(moveTimeout) }
+func (g *Game) deadline() time.Time { return time.Unix(0, g.LastMove).Add(moveTimeout) }
+func (g *Game) expires() time.Time  { return time.Unix(0, g.ExpiresAt) }
 
-func statsOf(addr address) *Stats {
+// statsOf returns a copy of addr's stats, zero if it has none; write changes
+// back with stats.Set.
+func statsOf(addr address) Stats {
 	if v := stats.Get(addr.String()); v != nil {
-		return v.(*Stats)
+		return v.(Stats)
 	}
-	s := &Stats{}
-	stats.Set(addr.String(), s)
-	return s
+	return Stats{}
 }
 
 // key zero-pads ids so avl iteration order matches creation order.
@@ -576,11 +594,35 @@ func key(id int) string {
 	return s
 }
 
-func get(id int) *Game {
-	if v := games.Get(key(id)); v != nil {
-		return v.(*Game)
+// Games are indexed by id-1 written in base 64: games[a][b][c]. Ids are
+// sequential, so this is a dense array in three levels, and each write
+// rewrites at most three 64-slot arrays however many games exist. An avl tree
+// rewrites a whole root-to-leaf path instead: 10.5M gas for an Offer at 3,000
+// games against 3.3M here at 10,000. games gains one entry per 4,096 games,
+// so writes stay flat for the first 262,144 games and grow slowly after.
+type (
+	page [64]*Game
+	book [64]*page
+)
+
+func store(g *Game) {
+	i := g.ID - 1
+	if i%4096 == 0 {
+		games = append(games, &book{})
 	}
-	return nil
+	b := games[i/4096]
+	if b[i/64%64] == nil {
+		b[i/64%64] = &page{}
+	}
+	b[i/64%64][i%64] = g
+}
+
+func get(id int) *Game {
+	if id < 1 || id > nextID {
+		return nil
+	}
+	i := id - 1
+	return games[i/4096][i/64%64][i%64]
 }
 
 func mustGet(id int) *Game {

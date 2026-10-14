@@ -14,7 +14,7 @@ import (
 func TestLeaderboardTopTen(t *testing.T) {
 	reset()
 	for i := 1; i <= 12; i++ {
-		topWins = bump(topWins, testutils.TestAddress("p"+strconv.Itoa(i)), int64(i))
+		topWins.bump(testutils.TestAddress("p"+strconv.Itoa(i)), int64(i))
 	}
 	out := leaderboard(topWins, func(v int64) string { return strconv.FormatInt(v, 10) })
 	uassert.True(t, strings.HasPrefix(strings.Split(out, "\n")[2], "| 1 | "+testutils.TestAddress("p12").String()+" | 12 |"))
@@ -37,7 +37,7 @@ func TestGamePageShowsActionsForEveryState(cur realm, t *testing.T) {
 	contains(Render(page), "func=Accept", ".send=10000000ugnot", "func=Cancel", "Open offer")
 
 	g := mustGet(id)
-	g.ExpiresAt = time.Now().Add(-time.Second)
+	g.ExpiresAt = time.Now().Add(-time.Second).UnixNano()
 	out := Render(page)
 	contains(out, "expired", "func=Cancel")
 	uassert.False(t, strings.Contains(out, "func=Accept"))
@@ -205,9 +205,9 @@ func TestLeaderboardsUpdateOnSettlement(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
 	pay(0)
 	Resign(cross(cur), g.ID)
-	uassert.Equal(t, 1, len(topWins))
-	uassert.Equal(t, bob, topWins[0].Addr)
-	uassert.Equal(t, stake-fee, topGnot[0].Score)
+	uassert.Equal(t, 1, len(topWins.Addrs))
+	uassert.Equal(t, bob, topWins.Addrs[0])
+	uassert.Equal(t, stake-fee, topGnot.Scores[0])
 	uassert.True(t, strings.Contains(Render(""), "| 1 | "+bob.String()+" | 1 |"))
 }
 
